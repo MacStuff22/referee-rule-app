@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -8,6 +8,32 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import type { Question, SubQuestion } from '@/types'
+
+function AutoResizeTextarea({ value, onChange, placeholder, className }: {
+  value: string
+  onChange: (val: string) => void
+  placeholder?: string
+  className?: string
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const resize = useCallback(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = el.scrollHeight + 'px'
+  }, [])
+  useEffect(() => { resize() }, [value, resize])
+  return (
+    <textarea
+      ref={ref}
+      rows={1}
+      value={value}
+      onChange={(e) => { onChange(e.target.value); resize() }}
+      placeholder={placeholder}
+      className={`w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none overflow-hidden leading-5 ${className ?? ''}`}
+    />
+  )
+}
 
 const HANDBOOK_SECTIONS = [
   'Section 1 – Playing Area',
@@ -461,7 +487,7 @@ export default function QuestionForm({ question }: Props) {
                   >
                     {String.fromCharCode(65 + i)}
                   </button>
-                  <Input value={opt} onChange={(e) => updateOption(i, e.target.value)} placeholder={`Option ${String.fromCharCode(65 + i)}`} />
+                  <AutoResizeTextarea value={opt} onChange={(val) => updateOption(i, val)} placeholder={`Option ${String.fromCharCode(65 + i)}`} />
                   {options.length > 2 && (
                     <button onClick={() => removeOption(i)} className="text-gray-400 hover:text-red-500 text-lg shrink-0">×</button>
                   )}
@@ -545,9 +571,9 @@ export default function QuestionForm({ question }: Props) {
                       >
                         {String.fromCharCode(65 + optIdx)}
                       </button>
-                      <Input
+                      <AutoResizeTextarea
                         value={opt}
-                        onChange={(e) => updateSubOption(sqIdx, optIdx, e.target.value)}
+                        onChange={(val) => updateSubOption(sqIdx, optIdx, val)}
                         placeholder={`Option ${String.fromCharCode(65 + optIdx)}`}
                         className="bg-white"
                       />
