@@ -437,7 +437,21 @@ export default function QuestionForm({ question }: Props) {
           ] as const).map(([m, label]) => (
             <button
               key={m}
-              onClick={() => { setMode(m); setCorrectAnswers([]) }}
+              onClick={() => {
+                if (m === 'compound' && mode !== 'compound') {
+                  // Carry current options/answers into the first sub-question
+                  const seeded: SubQuestionDraft = {
+                    text: '',
+                    answer_type: mode,
+                    options: options.length ? [...options] : ['', '', '', ''],
+                    correct_answers: [...correctAnswers],
+                    rationale: '',
+                  }
+                  setSubQuestions([seeded, emptySubQuestion()])
+                }
+                setMode(m)
+                setCorrectAnswers([])
+              }}
               className={`px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
                 mode === m ? 'border-slate-900 bg-slate-900 text-white' : 'border-gray-200 hover:border-gray-300'
               }`}
