@@ -445,7 +445,7 @@ export default function QuestionForm({ question }: Props) {
                     answer_type: mode,
                     options: options.length ? [...options] : ['', '', '', ''],
                     correct_answers: [...correctAnswers],
-                    rationale: '',
+                    rationale,
                   }
                   setSubQuestions([seeded, emptySubQuestion()])
                 }
