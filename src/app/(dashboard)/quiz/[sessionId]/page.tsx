@@ -10,6 +10,30 @@ import type { Question, QuizSession } from '@/types'
 
 type AnswerState = 'unanswered' | 'correct' | 'incorrect'
 
+const CLOCK_ENTRY = /^(.+?)\s*[–—]\s*(\d+:\d{2}|washed\s*out)$/i
+
+function renderOptionText(opt: string) {
+  const parts = opt.split(' | ')
+  const isClockFormat = parts.length > 1 && parts.every(p => CLOCK_ENTRY.test(p.trim()))
+  if (!isClockFormat) return <>{opt}</>
+  return (
+    <span className="flex flex-wrap gap-x-5 gap-y-1">
+      {parts.map((part, i) => {
+        const m = part.trim().match(CLOCK_ENTRY)
+        if (!m) return <span key={i}>{part}</span>
+        const [, player, time] = m
+        const isWashed = /washed/i.test(time)
+        return (
+          <span key={i} className="inline-flex items-center gap-1.5">
+            <span className="font-medium">{player}</span>
+            <span className={isWashed ? 'line-through text-gray-400' : 'text-blue-600 font-mono tabular-nums'}>{time}</span>
+          </span>
+        )
+      })}
+    </span>
+  )
+}
+
 export default function QuizSessionPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
   const router = useRouter()
@@ -282,7 +306,7 @@ export default function QuizSessionPage() {
                     className={`w-full text-left px-4 py-3 rounded-lg border-2 text-sm transition-all ${style}`}
                   >
                     <span className="font-medium mr-2">{String.fromCharCode(65 + displayIdx)}.</span>
-                    {opt}
+                    {renderOptionText(opt)}
                   </button>
                 )
               })}
@@ -362,7 +386,7 @@ export default function QuizSessionPage() {
                   className={`w-full text-left px-4 py-3 rounded-lg border-2 text-sm transition-all ${style}`}
                 >
                   <span className="font-medium mr-2">{String.fromCharCode(65 + displayIdx)}.</span>
-                  {opt}
+                  {renderOptionText(opt)}
                 </button>
               )
             })}
