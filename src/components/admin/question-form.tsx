@@ -645,7 +645,7 @@ export default function QuestionForm({ question }: Props) {
       <div className="space-y-2">
         <Label>Rule References <span className="text-gray-400 font-normal">— first entry is the primary rule</span></Label>
         <p className="text-xs text-gray-500">
-          Format: <code className="bg-gray-100 px-1 rounded">15.2</code> or <code className="bg-gray-100 px-1 rounded">15.1 P.2</code> or <code className="bg-gray-100 px-1 rounded">1.10(iv)</code>
+          Format: <code className="bg-gray-100 px-1 rounded">15.2</code> or <code className="bg-gray-100 px-1 rounded">15.1 P.2</code> or <code className="bg-gray-100 px-1 rounded">1.10(iv)</code> or <code className="bg-gray-100 px-1 rounded">tbl.14(Ex.G12)</code> or <code className="bg-gray-100 px-1 rounded">tbl.14</code>
         </p>
         <div className="space-y-2">
           {ruleRefs.map((ref, i) => (
@@ -654,7 +654,7 @@ export default function QuestionForm({ question }: Props) {
               <Input
                 value={ref}
                 onChange={(e) => updateRuleRef(i, e.target.value)}
-                placeholder={i === 0 ? 'Primary rule (e.g. 15.2)' : 'Additional rule'}
+                placeholder={i === 0 ? 'Primary rule (e.g. 15.2)' : 'Additional rule or table (e.g. tbl.14 or tbl.14(Ex.G12))'}
               />
               {ruleRefs.length > 1 && (
                 <button onClick={() => removeRuleRef(i)} className="text-gray-400 hover:text-red-500 text-lg shrink-0">×</button>
