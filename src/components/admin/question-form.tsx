@@ -9,19 +9,20 @@ import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import type { Question, SubQuestion } from '@/types'
 
-function AutoResizeTextarea({ value, onChange, placeholder, className }: {
+function AutoResizeTextarea({ value, onChange, placeholder, className, minHeight }: {
   value: string
   onChange: (val: string) => void
   placeholder?: string
   className?: string
+  minHeight?: number
 }) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const resize = useCallback(() => {
     const el = ref.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = el.scrollHeight + 'px'
-  }, [])
+    el.style.height = Math.max(el.scrollHeight, minHeight ?? 0) + 'px'
+  }, [minHeight])
   useEffect(() => { resize() }, [value, resize])
   return (
     <textarea
@@ -30,6 +31,7 @@ function AutoResizeTextarea({ value, onChange, placeholder, className }: {
       value={value}
       onChange={(e) => { onChange(e.target.value); resize() }}
       placeholder={placeholder}
+      style={{ minHeight: minHeight ? `${minHeight}px` : undefined }}
       className={`w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none overflow-hidden leading-5 ${className ?? ''}`}
     />
   )
@@ -470,10 +472,10 @@ export default function QuestionForm({ question }: Props) {
       {/* Situation / Question text */}
       <div className="space-y-2">
         <Label>Situation / Question</Label>
-        <textarea
-          className="w-full border rounded-md px-3 py-2 text-sm min-h-24 resize-y focus:outline-none focus:ring-2 focus:ring-slate-900"
+        <AutoResizeTextarea
+          minHeight={96}
           value={text}
-          onChange={(e) => setText(e.target.value)}
+          onChange={setText}
           placeholder={
             mode === 'compound'
               ? 'Describe the on-ice situation that all sub-questions below will refer to…'
@@ -513,10 +515,10 @@ export default function QuestionForm({ question }: Props) {
 
           <div className="space-y-2">
             <Label>Rationale / Explanation</Label>
-            <textarea
-              className="w-full border rounded-md px-3 py-2 text-sm min-h-20 resize-y focus:outline-none focus:ring-2 focus:ring-slate-900"
+            <AutoResizeTextarea
+              minHeight={80}
               value={rationale}
-              onChange={(e) => setRationale(e.target.value)}
+              onChange={setRationale}
               placeholder="Explain why the correct answer is correct, referencing the rule…"
             />
           </div>
@@ -559,11 +561,12 @@ export default function QuestionForm({ question }: Props) {
               {/* Sub-question text */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">Question</label>
-                <textarea
-                  className="w-full border rounded-md px-3 py-2 text-sm min-h-16 resize-y focus:outline-none focus:ring-2 focus:ring-slate-900 bg-white"
+                <AutoResizeTextarea
+                  minHeight={64}
                   value={sq.text}
-                  onChange={(e) => updateSubField(sqIdx, 'text', e.target.value)}
+                  onChange={(val) => updateSubField(sqIdx, 'text', val)}
                   placeholder={`What is the question for Part ${sqIdx + 1}?`}
+                  className="bg-white"
                 />
               </div>
 
@@ -603,11 +606,12 @@ export default function QuestionForm({ question }: Props) {
               {/* Rationale */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">Rationale</label>
-                <textarea
-                  className="w-full border rounded-md px-3 py-2 text-sm min-h-16 resize-y focus:outline-none focus:ring-2 focus:ring-slate-900 bg-white"
+                <AutoResizeTextarea
+                  minHeight={64}
                   value={sq.rationale}
-                  onChange={(e) => updateSubField(sqIdx, 'rationale', e.target.value)}
+                  onChange={(val) => updateSubField(sqIdx, 'rationale', val)}
                   placeholder="Explain the correct answer for this part…"
+                  className="bg-white"
                 />
               </div>
             </div>
