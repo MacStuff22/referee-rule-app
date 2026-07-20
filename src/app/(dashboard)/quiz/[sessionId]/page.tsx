@@ -532,7 +532,8 @@ export default function QuizSessionPage() {
   if (question.question_type === 'scoreboard') {
     const cfg = question.sub_questions?.[0] as any
     if (!cfg) return null
-    const { period, events = [], player_answers = [] } = cfg
+    const { period, events = [], player_answers = [], situation_type = 'expiration' } = cfg
+    const isCoincidental = situation_type === 'coincidental'
     const active = (player_answers as any[]).filter((a: any) => !a.already_expired)
     const goalEvt = (events as any[]).find((e: any) => e.type === 'goal')
     const allFilled = active.every((_: any, i: number) => sbWoState[i] || parseGTInput(sbInputs[i]) !== null)
@@ -728,7 +729,7 @@ export default function QuizSessionPage() {
                             : 'border-gray-300 bg-white text-gray-500 hover:border-gray-400'
                         } disabled:opacity-40 disabled:cursor-not-allowed`}
                       >
-                        Wash Out
+                        {isCoincidental ? 'Coincidental Penalty' : 'Wash Out'}
                       </button>
                       {sbSubmitted && (
                         <span className={`text-sm font-bold shrink-0 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
@@ -737,7 +738,7 @@ export default function QuizSessionPage() {
                       )}
                       {sbSubmitted && !isCorrect && (
                         <span className="text-xs text-gray-500 shrink-0 font-mono">
-                          {ans.wash_out_type === 'goal' ? 'Washed Out by Goal' : ans.wash_out_type === 'coincidental' ? 'Coincidental Penalty' : ans.wash_out ? 'Wash Out' : sbFormatGT(ans.correct_secs)}
+                          {ans.wash_out ? (isCoincidental ? 'Coincidental Penalty' : 'Wash Out') : sbFormatGT(ans.correct_secs)}
                         </span>
                       )}
                     </div>
