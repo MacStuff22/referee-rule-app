@@ -34,6 +34,7 @@ export interface ScoreboardPreviewProps {
   playerAnswers: PreviewPlayerAnswer[]
   rationale: string
   ruleNumber: string
+  situationType?: 'coincidental' | 'expiration'
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -90,7 +91,7 @@ type Phase = 'ready' | 'fast' | 'real' | 'overlay' | 'question'
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ScoreboardPreview({ period, startGT, events, playerAnswers, rationale, ruleNumber }: ScoreboardPreviewProps) {
+export function ScoreboardPreview({ period, startGT, events, playerAnswers, rationale, ruleNumber, situationType = 'expiration' }: ScoreboardPreviewProps) {
   const active = playerAnswers.filter((a) => !a.already_expired)
   const goalEvt = events.find((e) => e.type === 'goal')
 
@@ -382,12 +383,8 @@ export function ScoreboardPreview({ period, startGT, events, playerAnswers, rati
                         woState[i] ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 bg-white text-gray-500 hover:border-gray-400'
                       } disabled:opacity-40 disabled:cursor-not-allowed`}
                     >
-                      Wash Out
+                      {situationType === 'coincidental' ? 'Coincidental Penalty' : 'Wash Out'}
                     </button>
-                    {/* Admin hint: always show the correct answer */}
-                    <span className="text-xs text-gray-400 shrink-0 font-mono">
-                      {ans.wash_out ? '(Wash Out)' : `(${fmtGT(ans.correct_secs)})`}
-                    </span>
                     {submitted && (
                       <span className={`text-sm font-bold shrink-0 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
                         {isCorrect ? '✓' : '✗'}

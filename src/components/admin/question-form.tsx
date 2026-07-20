@@ -1312,6 +1312,7 @@ export default function QuestionForm({ question }: Props) {
                   }))}
                   rationale={rationale}
                   ruleNumber={ruleRefs[0] ?? ''}
+                  situationType={sbSituationType}
                 />
               )}
             </DialogContent>
