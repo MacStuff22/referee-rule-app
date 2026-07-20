@@ -725,28 +725,25 @@ export default function QuestionForm({ question }: Props) {
               : 'Describe the on-ice situation or question…'
           }
         />
+        {(mode === 'multiple_choice' || mode === 'multi_select') && !hasPenaltyTable && (
+          <div className="text-right">
+            <button
+              type="button"
+              onClick={() => { setPenaltyA([emptyEntry()]); setPenaltyB([]) }}
+              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+            >
+              + Add Penalty Table
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Standard question ── */}
       {(mode === 'multiple_choice' || mode === 'multi_select') && (
         <>
           {/* Penalty table (optional) */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label>Penalty Table <span className="text-gray-400 font-normal">(optional)</span></Label>
-              {!hasPenaltyTable && (
-                <button
-                  type="button"
-                  onClick={() => { setPenaltyA([emptyEntry()]); setPenaltyB([]) }}
-                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  + Add table
-                </button>
-              )}
-            </div>
-
-            {hasPenaltyTable && (
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
+          {hasPenaltyTable && (
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
                 <div className="grid grid-cols-2 divide-x divide-gray-200">
                   {(['A', 'B'] as const).map((team) => {
                     const entries = team === 'A' ? penaltyA : penaltyB
@@ -807,8 +804,7 @@ export default function QuestionForm({ question }: Props) {
                   </button>
                 </div>
               </div>
-            )}
-          </div>
+          )}
 
           <div className="space-y-2">
             <Label>Answer Options <span className="text-gray-400 font-normal">(click the letter to mark correct)</span></Label>
