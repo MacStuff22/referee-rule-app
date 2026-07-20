@@ -109,7 +109,7 @@ export default function QuizSessionPage() {
   // Scoreboard question state
   const [sbPhase, setSbPhase] = useState<SbPhase>('ready')
   const [sbClockGT, setSbClockGT] = useState(0)
-  const [sbOverlay, setSbOverlay] = useState<{ title: string; sub: string | null; isGoal: boolean } | null>(null)
+  const [sbOverlay, setSbOverlay] = useState<{ title: string; sub: string | null; isGoal: boolean; combined?: { teamA: { player: string; label: string }[]; teamB: { player: string; label: string }[] } } | null>(null)
   const [sbLog, setSbLog] = useState<{ gt: number; text: string; isGoal: boolean }[]>([])
   const [sbScoreA, setSbScoreA] = useState(0)
   const [sbScoreB, setSbScoreB] = useState(0)
@@ -120,6 +120,7 @@ export default function QuizSessionPage() {
   const sbTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const sbGTRef = useRef(0)
   const sbEvtIdxRef = useRef(0)
+  const sbGroupSizeRef = useRef(1)
   const sbCfgRef = useRef<any>(null)
 
   useEffect(() => {
@@ -156,6 +157,7 @@ export default function QuizSessionPage() {
     setSbSubmitted(false)
     sbGTRef.current = 0
     sbEvtIdxRef.current = 0
+    sbGroupSizeRef.current = 1
     sbCfgRef.current = null
     if (sbTimerRef.current) { clearInterval(sbTimerRef.current); sbTimerRef.current = null }
 
@@ -202,27 +204,53 @@ export default function QuizSessionPage() {
 
   function fireSbEvent() {
     const events = sbCfgRef.current?.events ?? []
-    const evt = events[sbEvtIdxRef.current]
-    if (!evt) return
-    sbGTRef.current = evt.gt
-    setSbClockGT(evt.gt)
-    const isGoal = evt.type === 'goal'
-    const title = isGoal
-      ? `Goal — Team ${evt.team}`
-      : `Penalt${(evt.penalties?.length ?? 0) > 1 ? 'ies' : 'y'} — Team ${evt.team} #${evt.player}`
-    const sub = isGoal ? null : sbPenaltyLabel(evt)
-    if (isGoal) {
-      if (evt.team === 'A') setSbScoreA((s) => s + 1)
+    const start = sbEvtIdxRef.current
+    if (start >= events.length) return
+    const gt = events[start].gt
+    const group: any[] = []
+    for (let i = start; i < events.length && events[i].gt === gt; i++) group.push(events[i])
+    sbGroupSizeRef.current = group.length
+
+    sbGTRef.current = gt
+    setSbClockGT(gt)
+
+    setSbLog((prev) => [
+      ...prev,
+      ...group.map((e: any) => ({
+        gt: e.gt,
+        text: e.type === 'goal' ? `GOAL — Team ${e.team}` : `Team ${e.team} #${e.player} — ${sbPenaltyLabel(e)}`,
+        isGoal: e.type === 'goal',
+      })),
+    ])
+
+    const goalInGroup = group.find((e: any) => e.type === 'goal')
+    if (goalInGroup) {
+      if (goalInGroup.team === 'A') setSbScoreA((s) => s + 1)
       else setSbScoreB((s) => s + 1)
     }
-    setSbLog((prev) => [...prev, {
-      gt: evt.gt,
-      text: isGoal
-        ? `GOAL — Team ${evt.team}`
-        : `Team ${evt.team} #${evt.player} — ${sbPenaltyLabel(evt)}`,
-      isGoal,
-    }])
-    setSbOverlay({ title, sub, isGoal })
+
+    const penA = group.filter((e: any) => e.type === 'penalty' && e.team === 'A')
+    const penB = group.filter((e: any) => e.type === 'penalty' && e.team === 'B')
+
+    if (penA.length > 0 && penB.length > 0) {
+      const title = goalInGroup ? 'Goal + Coincidental Penalties' : 'Coincidental Penalties'
+      setSbOverlay({
+        title,
+        sub: null,
+        isGoal: !!goalInGroup,
+        combined: {
+          teamA: penA.map((e: any) => ({ player: e.player, label: sbPenaltyLabel(e) })),
+          teamB: penB.map((e: any) => ({ player: e.player, label: sbPenaltyLabel(e) })),
+        },
+      })
+    } else if (goalInGroup) {
+      setSbOverlay({ title: `Goal — Team ${goalInGroup.team}`, sub: null, isGoal: true })
+    } else {
+      const evt = group[0]
+      const title = `Penalt${(evt.penalties?.length ?? 0) > 1 ? 'ies' : 'y'} — Team ${evt.team} #${evt.player}`
+      setSbOverlay({ title, sub: sbPenaltyLabel(evt), isGoal: false })
+    }
+
     setSbPhase('overlay')
   }
 
@@ -268,7 +296,8 @@ export default function QuizSessionPage() {
 
   function onSbContinue() {
     setSbOverlay(null)
-    sbEvtIdxRef.current++
+    sbEvtIdxRef.current += sbGroupSizeRef.current
+    sbGroupSizeRef.current = 1
     const events = sbCfgRef.current?.events ?? []
     if (sbEvtIdxRef.current >= events.length) {
       setSbPhase('question')
@@ -539,7 +568,13 @@ export default function QuizSessionPage() {
     const allFilled = active.every((_: any, i: number) => sbWoState[i] || parseGTInput(sbInputs[i]) !== null)
 
     // Penalty slots: events that have been called (clock at or below event's gt)
-    const firedPenalties = (events as any[]).filter((e: any) => e.type === 'penalty' && sbClockGT <= e.gt)
+    const finalGT = (events as any[]).length > 0 ? Math.min(...(events as any[]).map((e: any) => e.gt)) : -1
+    const firedPenalties = (events as any[]).filter((e: any) => {
+      if (e.type !== 'penalty') return false
+      if (sbClockGT > e.gt) return false
+      if (isCoincidental && e.gt === finalGT) return false
+      return true
+    })
     const penA = firedPenalties.filter((e: any) => e.team === 'A')
     const penB = firedPenalties.filter((e: any) => e.team === 'B')
 
@@ -598,14 +633,35 @@ export default function QuizSessionPage() {
               }}
             >
               <div className="text-3xl mb-1">{sbOverlay.isGoal ? '🚨' : '📋'}</div>
-              <div className={`text-sm font-medium text-center mb-2 ${sbOverlay.isGoal ? 'text-green-300' : 'text-amber-300'}`}>
+              <div className={`text-sm font-medium text-center mb-3 ${sbOverlay.isGoal ? 'text-green-300' : 'text-amber-300'}`}>
                 {sbOverlay.title}
               </div>
-              {sbOverlay.sub && (
+              {sbOverlay.combined ? (
+                <div className="w-full grid grid-cols-2 gap-4 mb-4 px-2">
+                  <div>
+                    <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color: 'rgba(96,165,250,0.6)' }}>Team A</div>
+                    {sbOverlay.combined.teamA.map((p, i) => (
+                      <div key={i} className="mb-1">
+                        <span className="text-[12px] font-medium text-white">#{p.player}</span>
+                        <div className="text-[10px] leading-snug" style={{ color: 'rgba(255,255,255,0.45)' }}>{p.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color: 'rgba(248,113,113,0.6)' }}>Team B</div>
+                    {sbOverlay.combined.teamB.map((p, i) => (
+                      <div key={i} className="mb-1">
+                        <span className="text-[12px] font-medium text-white">#{p.player}</span>
+                        <div className="text-[10px] leading-snug" style={{ color: 'rgba(255,255,255,0.45)' }}>{p.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : sbOverlay.sub ? (
                 <div className="text-[11px] text-center mb-4 leading-relaxed whitespace-pre-line" style={{ color: 'rgba(255,255,255,0.5)' }}>
                   {sbOverlay.sub}
                 </div>
-              )}
+              ) : null}
               <button
                 onClick={onSbContinue}
                 className="px-5 py-1.5 text-sm rounded-lg transition-colors"

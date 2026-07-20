@@ -89,6 +89,13 @@ function maskGameTime(raw: string): string {
 
 type Phase = 'ready' | 'fast' | 'real' | 'overlay' | 'question'
 
+interface CombinedPenalties {
+  teamA: { player: string; label: string }[]
+  teamB: { player: string; label: string }[]
+}
+
+type Overlay = { title: string; sub: string | null; isGoal: boolean; combined?: CombinedPenalties }
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ScoreboardPreview({ period, startGT, events, playerAnswers, rationale, ruleNumber, situationType = 'expiration' }: ScoreboardPreviewProps) {
@@ -99,7 +106,7 @@ export function ScoreboardPreview({ period, startGT, events, playerAnswers, rati
   const [clockGT, setClockGT] = useState(startGT)
   const [scoreA, setScoreA] = useState(0)
   const [scoreB, setScoreB] = useState(0)
-  const [overlay, setOverlay] = useState<{ title: string; sub: string | null; isGoal: boolean } | null>(null)
+  const [overlay, setOverlay] = useState<Overlay | null>(null)
   const [log, setLog] = useState<{ gt: number; text: string; isGoal: boolean }[]>([])
   const [inputs, setInputs] = useState<string[]>(active.map(() => ''))
   const [woState, setWoState] = useState<boolean[]>(active.map(() => false))
@@ -110,31 +117,60 @@ export function ScoreboardPreview({ period, startGT, events, playerAnswers, rati
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const gtRef = useRef(startGT)
   const evtIdxRef = useRef(0)
+  const groupSizeRef = useRef(1)
 
   function clearTimer() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
   }
 
   function fireEvent() {
-    const evt = events[evtIdxRef.current]
-    if (!evt) return
-    gtRef.current = evt.gt
-    setClockGT(evt.gt)
-    const isGoal = evt.type === 'goal'
-    const title = isGoal
-      ? `Goal — Team ${evt.team}`
-      : `Penalt${(evt.penalties?.length ?? 0) > 1 ? 'ies' : 'y'} — Team ${evt.team} #${evt.player}`
-    const sub = isGoal ? null : penaltyLabel(evt)
-    if (isGoal) {
-      if (evt.team === 'A') setScoreA((s) => s + 1)
+    const start = evtIdxRef.current
+    if (start >= events.length) return
+    const gt = events[start].gt
+    const group: PreviewEvent[] = []
+    for (let i = start; i < events.length && events[i].gt === gt; i++) group.push(events[i])
+    groupSizeRef.current = group.length
+
+    gtRef.current = gt
+    setClockGT(gt)
+
+    setLog((prev) => [
+      ...prev,
+      ...group.map((e) => ({
+        gt: e.gt,
+        text: e.type === 'goal' ? `GOAL — Team ${e.team}` : `Team ${e.team} #${e.player} — ${penaltyLabel(e)}`,
+        isGoal: e.type === 'goal',
+      })),
+    ])
+
+    const goalInGroup = group.find((e) => e.type === 'goal')
+    if (goalInGroup) {
+      if (goalInGroup.team === 'A') setScoreA((s) => s + 1)
       else setScoreB((s) => s + 1)
     }
-    setLog((prev) => [...prev, {
-      gt: evt.gt,
-      text: isGoal ? `GOAL — Team ${evt.team}` : `Team ${evt.team} #${evt.player} — ${penaltyLabel(evt)}`,
-      isGoal,
-    }])
-    setOverlay({ title, sub, isGoal })
+
+    const penA = group.filter((e) => e.type === 'penalty' && e.team === 'A')
+    const penB = group.filter((e) => e.type === 'penalty' && e.team === 'B')
+
+    if (penA.length > 0 && penB.length > 0) {
+      const title = goalInGroup ? 'Goal + Coincidental Penalties' : 'Coincidental Penalties'
+      setOverlay({
+        title,
+        sub: null,
+        isGoal: !!goalInGroup,
+        combined: {
+          teamA: penA.map((e) => ({ player: e.player, label: penaltyLabel(e) })),
+          teamB: penB.map((e) => ({ player: e.player, label: penaltyLabel(e) })),
+        },
+      })
+    } else if (goalInGroup) {
+      setOverlay({ title: `Goal — Team ${goalInGroup.team}`, sub: null, isGoal: true })
+    } else {
+      const evt = group[0]
+      const title = `Penalt${(evt.penalties?.length ?? 0) > 1 ? 'ies' : 'y'} — Team ${evt.team} #${evt.player}`
+      setOverlay({ title, sub: penaltyLabel(evt), isGoal: false })
+    }
+
     setPhase('overlay')
   }
 
@@ -167,7 +203,8 @@ export function ScoreboardPreview({ period, startGT, events, playerAnswers, rati
 
   function onContinue() {
     setOverlay(null)
-    evtIdxRef.current++
+    evtIdxRef.current += groupSizeRef.current
+    groupSizeRef.current = 1
     if (evtIdxRef.current >= events.length) {
       setPhase('question')
     } else {
@@ -189,6 +226,7 @@ export function ScoreboardPreview({ period, startGT, events, playerAnswers, rati
     setSubmitted(false)
     setResults([])
     setAnswerState('unanswered')
+    groupSizeRef.current = 1
   }
 
   function toggleWo(i: number) {
@@ -211,7 +249,13 @@ export function ScoreboardPreview({ period, startGT, events, playerAnswers, rati
   }
 
   // ── Derived: fired penalty slots ───────────────────────────────────────────
-  const firedPenalties = events.filter((e) => e.type === 'penalty' && clockGT <= e.gt)
+  const finalGT = events.length > 0 ? Math.min(...events.map((e) => e.gt)) : -1
+  const firedPenalties = events.filter((e) => {
+    if (e.type !== 'penalty') return false
+    if (clockGT > e.gt) return false
+    if (situationType === 'coincidental' && e.gt === finalGT) return false
+    return true
+  })
   const penA = firedPenalties.filter((e) => e.team === 'A')
   const penB = firedPenalties.filter((e) => e.team === 'B')
 
@@ -264,14 +308,35 @@ export function ScoreboardPreview({ period, startGT, events, playerAnswers, rati
             }}
           >
             <div className="text-3xl mb-1">{overlay.isGoal ? '🚨' : '📋'}</div>
-            <div className={`text-sm font-medium text-center mb-2 ${overlay.isGoal ? 'text-green-300' : 'text-amber-300'}`}>
+            <div className={`text-sm font-medium text-center mb-3 ${overlay.isGoal ? 'text-green-300' : 'text-amber-300'}`}>
               {overlay.title}
             </div>
-            {overlay.sub && (
+            {overlay.combined ? (
+              <div className="w-full grid grid-cols-2 gap-4 mb-4 px-2">
+                <div>
+                  <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color: 'rgba(96,165,250,0.6)' }}>Team A</div>
+                  {overlay.combined.teamA.map((p, i) => (
+                    <div key={i} className="mb-1">
+                      <span className="text-[12px] font-medium text-white">#{p.player}</span>
+                      <div className="text-[10px] leading-snug" style={{ color: 'rgba(255,255,255,0.45)' }}>{p.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <div>
+                  <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color: 'rgba(248,113,113,0.6)' }}>Team B</div>
+                  {overlay.combined.teamB.map((p, i) => (
+                    <div key={i} className="mb-1">
+                      <span className="text-[12px] font-medium text-white">#{p.player}</span>
+                      <div className="text-[10px] leading-snug" style={{ color: 'rgba(255,255,255,0.45)' }}>{p.label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : overlay.sub ? (
               <div className="text-[11px] text-center mb-4 leading-relaxed whitespace-pre-line" style={{ color: 'rgba(255,255,255,0.5)' }}>
                 {overlay.sub}
               </div>
-            )}
+            ) : null}
             <button
               onClick={onContinue}
               className="px-5 py-1.5 text-sm rounded-lg transition-colors"
