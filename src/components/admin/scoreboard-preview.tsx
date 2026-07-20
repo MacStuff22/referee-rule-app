@@ -70,6 +70,22 @@ function parseInput(str: string): number | null {
   return parseInt(m[1]) * 60 + parseInt(m[2])
 }
 
+function maskGameTime(raw: string): string {
+  const d = raw.replace(/\D/g, '').slice(0, 4)
+  if (!d) return ''
+  let result: string
+  if (d.length === 1) result = `0:0${d}`
+  else if (d.length === 2) result = `0:${d}`
+  else if (d.length === 3) result = `${d[0]}:${d.slice(1)}`
+  else {
+    const mins = parseInt(d.slice(0, 2), 10)
+    result = `${mins}:${d.slice(2)}`
+  }
+  const secs = parseInput(result)
+  if (secs !== null && secs > 1200) return '20:00'
+  return result
+}
+
 type Phase = 'ready' | 'fast' | 'real' | 'overlay' | 'question'
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -352,7 +368,8 @@ export function ScoreboardPreview({ period, startGT, events, playerAnswers, rati
                       value={woState[i] ? '' : inputs[i]}
                       onChange={(e) => {
                         if (submitted || woState[i]) return
-                        setInputs((prev) => { const n = [...prev]; n[i] = e.target.value; return n })
+                        const masked = maskGameTime(e.target.value)
+                        setInputs((prev) => { const n = [...prev]; n[i] = masked; return n })
                       }}
                       disabled={submitted || woState[i]}
                       placeholder="m:ss"

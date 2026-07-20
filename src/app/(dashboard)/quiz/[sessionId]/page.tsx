@@ -45,6 +45,23 @@ function parseGTInput(str: string): number | null {
   return parseInt(m[1]) * 60 + parseInt(m[2])
 }
 
+// Smart game-time mask: digits only, colon auto-inserted, 20:00 max, 59s max
+function maskGameTime(raw: string): string {
+  const d = raw.replace(/\D/g, '').slice(0, 4)
+  if (!d) return ''
+  let result: string
+  if (d.length === 1) result = `0:0${d}`
+  else if (d.length === 2) result = `0:${d}`
+  else if (d.length === 3) result = `${d[0]}:${d.slice(1)}`
+  else {
+    const mins = parseInt(d.slice(0, 2), 10)
+    result = `${mins}:${d.slice(2)}`
+  }
+  const secs = parseGTInput(result)
+  if (secs !== null && secs > 1200) return '20:00'
+  return result
+}
+
 const CLOCK_ENTRY = /^(.+?)\s*[–—]\s*(\d+:\d{2}|washed\s*out)$/i
 
 function renderOptionText(opt: string) {
@@ -695,7 +712,8 @@ export default function QuizSessionPage() {
                         value={sbWoState[i] ? '' : sbInputs[i]}
                         onChange={(e) => {
                           if (sbSubmitted || sbWoState[i]) return
-                          setSbInputs((prev) => { const n = [...prev]; n[i] = e.target.value; return n })
+                          const masked = maskGameTime(e.target.value)
+                          setSbInputs((prev) => { const n = [...prev]; n[i] = masked; return n })
                         }}
                         disabled={sbSubmitted || sbWoState[i]}
                         placeholder="m:ss"
