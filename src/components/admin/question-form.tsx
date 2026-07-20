@@ -1151,6 +1151,7 @@ export default function QuestionForm({ question }: Props) {
           {/* Preview button */}
           <div className="pt-1">
             <Button
+              type="button"
               variant="outline"
               onClick={() => setSbPreviewOpen(true)}
               disabled={sbEvents.length === 0 || !parseGT(sbStartGT)}
