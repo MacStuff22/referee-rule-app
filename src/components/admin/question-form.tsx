@@ -315,9 +315,7 @@ export default function QuestionForm({ question }: Props) {
   // Penalty table (optional, for MC/multi-select)
   type PenaltyRow = { team: 'A' | 'B'; player: string; penalty: string; duration: string; time_called: string }
   const [penaltyRows, setPenaltyRows] = useState<PenaltyRow[]>(
-    (question?.penalty_table as PenaltyRow[] | undefined)?.length
-      ? (question.penalty_table as PenaltyRow[])
-      : []
+    (question?.penalty_table as PenaltyRow[] | undefined) ?? []
   )
   function emptyPenaltyRow(): PenaltyRow {
     return { team: 'A', player: '', penalty: '', duration: '', time_called: '' }
