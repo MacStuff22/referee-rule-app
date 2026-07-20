@@ -1186,7 +1186,10 @@ export default function QuestionForm({ question }: Props) {
               Correct Answers <span className="text-gray-400 font-normal text-xs ml-1">— what the clock shows after the key event</span>
             </Label>
             <p className="text-xs text-gray-500">
-              Auto-populated from penalty events above. For each player, enter the time remaining, mark as <strong>Wash Out</strong> if their penalty is released by the goal, or mark as <strong>Already Expired</strong> if the penalty finished before the key event (these won&apos;t be shown as answer options).
+              {sbSituationType === 'coincidental'
+                ? <>For each player, enter the time remaining, mark as <strong>Coincidental Penalty</strong> if their penalty does not appear on the scoreboard because it coincides with an opposing penalty.</>
+                : <>For each player, enter the time remaining, mark as <strong>Wash Out</strong> if their penalty is released by the goal, or mark as <strong>Already Expired</strong> if the penalty finished before the key event.</>
+              }
             </p>
 
             {sbPlayerAnswers.length === 0 && (
