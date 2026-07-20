@@ -312,6 +312,20 @@ export default function QuestionForm({ question }: Props) {
   const [correctAnswers, setCorrectAnswers] = useState<number[]>(question?.correct_answers ?? [])
   const [rationale, setRationale] = useState(question?.rationale ?? '')
 
+  // Penalty table (optional, for MC/multi-select)
+  type PenaltyRow = { team: 'A' | 'B'; player: string; penalty: string; duration: string; time_called: string }
+  const [penaltyRows, setPenaltyRows] = useState<PenaltyRow[]>(
+    (question?.penalty_table as PenaltyRow[] | undefined)?.length
+      ? (question.penalty_table as PenaltyRow[])
+      : []
+  )
+  function emptyPenaltyRow(): PenaltyRow {
+    return { team: 'A', player: '', penalty: '', duration: '', time_called: '' }
+  }
+  function updatePenaltyRow(i: number, field: keyof PenaltyRow, value: string) {
+    setPenaltyRows((prev) => { const n = [...prev]; n[i] = { ...n[i], [field]: value }; return n })
+  }
+
   // Compound sub-questions
   const [subQuestions, setSubQuestions] = useState<SubQuestionDraft[]>(
     question?.question_type === 'compound' && question?.sub_questions?.length
@@ -590,6 +604,7 @@ export default function QuestionForm({ question }: Props) {
         correct_answers: correctAnswers,
         rationale: rationale.trim(),
         sub_questions: [],
+        penalty_table: penaltyRows.filter((r) => r.player.trim() || r.penalty.trim()),
         rule_number: filledRefs[0] ?? '',
         rule_references: filledRefs,
         handbook_section: handbookSection,
@@ -706,6 +721,102 @@ export default function QuestionForm({ question }: Props) {
       {/* ── Standard question ── */}
       {(mode === 'multiple_choice' || mode === 'multi_select') && (
         <>
+          {/* Penalty table (optional) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Penalty Table <span className="text-gray-400 font-normal">(optional — for on-ice strength scenarios)</span></Label>
+              {penaltyRows.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => setPenaltyRows([emptyPenaltyRow()])}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  + Add table
+                </button>
+              )}
+            </div>
+
+            {penaltyRows.length > 0 && (
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                {/* Column headers */}
+                <div className="grid grid-cols-[60px_70px_1fr_80px_80px_32px] gap-x-2 px-3 py-2 bg-gray-50 border-b border-gray-200">
+                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Team</span>
+                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Player #</span>
+                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Penalty</span>
+                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Duration</span>
+                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Time Called</span>
+                  <span />
+                </div>
+
+                {/* Rows */}
+                {penaltyRows.map((row, i) => (
+                  <div key={i} className="grid grid-cols-[60px_70px_1fr_80px_80px_32px] gap-x-2 px-3 py-2 border-b border-gray-100 last:border-0 items-center">
+                    <select
+                      value={row.team}
+                      onChange={(e) => updatePenaltyRow(i, 'team', e.target.value)}
+                      className="text-sm border border-gray-300 rounded px-1.5 py-1 bg-white"
+                    >
+                      <option value="A">Team A</option>
+                      <option value="B">Team B</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={row.player}
+                      onChange={(e) => updatePenaltyRow(i, 'player', e.target.value)}
+                      placeholder="#"
+                      className="text-sm border border-gray-300 rounded px-2 py-1 w-full"
+                    />
+                    <input
+                      type="text"
+                      value={row.penalty}
+                      onChange={(e) => updatePenaltyRow(i, 'penalty', e.target.value)}
+                      placeholder="e.g. Double Minor – High Sticking"
+                      className="text-sm border border-gray-300 rounded px-2 py-1 w-full"
+                    />
+                    <input
+                      type="text"
+                      value={row.duration}
+                      onChange={(e) => updatePenaltyRow(i, 'duration', e.target.value)}
+                      placeholder="4:00"
+                      className="text-sm border border-gray-300 rounded px-2 py-1 font-mono w-full"
+                    />
+                    <input
+                      type="text"
+                      value={row.time_called}
+                      onChange={(e) => updatePenaltyRow(i, 'time_called', maskGameTime(e.target.value))}
+                      placeholder="m:ss"
+                      className="text-sm border border-gray-300 rounded px-2 py-1 font-mono w-full"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPenaltyRows((prev) => prev.filter((_, j) => j !== i))}
+                      className="text-gray-400 hover:text-red-500 text-lg leading-none"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+
+                <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setPenaltyRows((prev) => [...prev, emptyPenaltyRow()])}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    + Add row
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPenaltyRows([])}
+                    className="text-xs text-red-400 hover:text-red-600"
+                  >
+                    Remove table
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="space-y-2">
             <Label>Answer Options <span className="text-gray-400 font-normal">(click the letter to mark correct)</span></Label>
             <div className="space-y-2">

@@ -779,9 +779,60 @@ export default function QuizSessionPage() {
 
   // ─── Standard question render ────────────────────────────────────────────────
 
+  const penaltyTable: any[] = (question as any).penalty_table ?? []
+  const penA = penaltyTable.filter((r: any) => r.team === 'A')
+  const penB = penaltyTable.filter((r: any) => r.team === 'B')
+
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       {progressBar}
+
+      {/* Penalty table — shown when admin has attached one */}
+      {penaltyTable.length > 0 && (
+        <div className="rounded-xl border border-slate-200 overflow-hidden">
+          {/* Header */}
+          <div className="grid grid-cols-2 divide-x divide-slate-200 bg-slate-800">
+            <div className="px-3 py-2 text-center text-[11px] font-bold uppercase tracking-widest text-blue-300">Team A</div>
+            <div className="px-3 py-2 text-center text-[11px] font-bold uppercase tracking-widest text-red-300">Team B</div>
+          </div>
+
+          {/* Rows: zip Team A and Team B side-by-side */}
+          {Array.from({ length: Math.max(penA.length, penB.length) }).map((_, i) => {
+            const a = penA[i]
+            const b = penB[i]
+            return (
+              <div key={i} className="grid grid-cols-2 divide-x divide-slate-100 border-t border-slate-100">
+                {/* Team A cell */}
+                <div className={`px-3 py-2.5 ${a ? '' : 'bg-slate-50'}`}>
+                  {a && (
+                    <>
+                      <div className="text-[11px] font-bold text-blue-700 mb-0.5">#{a.player}</div>
+                      <div className="text-[12px] text-slate-800 leading-snug">{a.penalty}</div>
+                      <div className="flex gap-3 mt-1">
+                        <span className="text-[11px] text-slate-500 font-mono">{a.duration}</span>
+                        <span className="text-[11px] text-slate-400">called {a.time_called}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+                {/* Team B cell */}
+                <div className={`px-3 py-2.5 ${b ? '' : 'bg-slate-50'}`}>
+                  {b && (
+                    <>
+                      <div className="text-[11px] font-bold text-red-700 mb-0.5">#{b.player}</div>
+                      <div className="text-[12px] text-slate-800 leading-snug">{b.penalty}</div>
+                      <div className="flex gap-3 mt-1">
+                        <span className="text-[11px] text-slate-500 font-mono">{b.duration}</span>
+                        <span className="text-[11px] text-slate-400">called {b.time_called}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       <Card>
         <CardContent className="pt-6">

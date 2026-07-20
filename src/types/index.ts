@@ -4,6 +4,14 @@ export type QuestionType = 'situation' | 'written' | 'compound' | 'scoreboard'
 export type AnswerType = 'multiple_choice' | 'multi_select'
 export type SessionLength = 'quick' | 'standard' | 'full'
 
+export interface PenaltyTableRow {
+  team: 'A' | 'B'
+  player: string
+  penalty: string
+  duration: string
+  time_called: string
+}
+
 export interface SubQuestion {
   text: string
   answer_type: 'multiple_choice' | 'multi_select'
@@ -35,6 +43,7 @@ export interface Question {
   category: string
   question_type: QuestionType
   sub_questions: SubQuestion[] // populated only when question_type === 'compound'
+  penalty_table: PenaltyTableRow[]
   is_approved: boolean
   created_by: string
   created_at: string
