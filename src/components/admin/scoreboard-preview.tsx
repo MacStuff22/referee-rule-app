@@ -153,7 +153,7 @@ export function ScoreboardPreview({ period, startGT, events, playerAnswers, rati
     const penB = group.filter((e) => e.type === 'penalty' && e.team === 'B')
 
     if (penA.length > 0 && penB.length > 0) {
-      const title = goalInGroup ? 'Goal + Coincidental Penalties' : 'Coincidental Penalties'
+      const title = goalInGroup ? 'Goal + Penalties' : 'Penalties'
       setOverlay({
         title,
         sub: null,

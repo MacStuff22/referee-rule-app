@@ -233,7 +233,7 @@ export default function QuizSessionPage() {
     const penB = group.filter((e: any) => e.type === 'penalty' && e.team === 'B')
 
     if (penA.length > 0 && penB.length > 0) {
-      const title = goalInGroup ? 'Goal + Coincidental Penalties' : 'Coincidental Penalties'
+      const title = goalInGroup ? 'Goal + Penalties' : 'Penalties'
       setSbOverlay({
         title,
         sub: null,
