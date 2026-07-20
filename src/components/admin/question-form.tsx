@@ -37,6 +37,89 @@ function AutoResizeTextarea({ value, onChange, placeholder, className, minHeight
   )
 }
 
+// ── Scoreboard types ──────────────────────────────────────────────────────────
+
+interface SinglePenalty {
+  penalty_type: 'minor' | 'double_minor' | 'major' | 'match'
+  infraction: string  // optional, e.g. "Cross-checking"
+}
+
+const PENALTY_DURATIONS: Record<SinglePenalty['penalty_type'], number> = {
+  minor: 120,
+  double_minor: 240,
+  major: 300,
+  match: 300,
+}
+
+const PENALTY_DISPLAY: Record<SinglePenalty['penalty_type'], string> = {
+  minor: 'Minor',
+  double_minor: 'Double Minor',
+  major: 'Major',
+  match: 'Match',
+}
+
+interface ScoreboardEvent {
+  gt: string  // raw user input, e.g. "3:18" — parsed to seconds only on save
+  type: 'penalty' | 'goal'
+  team: 'A' | 'B'
+  player: string
+  penalties: SinglePenalty[]  // one entry for single; multiple for combined (e.g. minor + major)
+}
+
+interface ScoreboardPlayerAnswer {
+  team: 'A' | 'B'
+  player: string
+  correct_gt: string   // raw typed string, e.g. "1:34"; parsed to correct_secs on save
+  correct_secs: number // derived on save from correct_gt
+  wash_out: boolean
+  already_expired: boolean  // penalty expired before the key event; not shown as answer option
+}
+
+function parseGT(s: string): number {
+  const m = s.trim().match(/^(\d+):(\d{2})$/)
+  if (!m) return 0
+  return parseInt(m[1]) * 60 + parseInt(m[2])
+}
+
+function formatGT(secs: number): string {
+  const m = Math.floor(Math.abs(secs) / 60)
+  const s = Math.abs(secs) % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function gtSecondsValid(s: string): boolean {
+  const m = s.match(/^(\d+):(\d{2})$/)
+  if (!m) return true
+  return parseInt(m[2], 10) <= 59
+}
+
+// Smart game-time mask: digits only, colon auto-inserted
+// 1 digit → 0:0X, 2 → 0:XX, 3 → X:XX, 4 → XX:XX, max 20:00
+function maskGameTime(raw: string): string {
+  const d = raw.replace(/\D/g, '').slice(0, 4)
+  if (!d) return ''
+  let result: string
+  if (d.length === 1) result = `0:0${d}`
+  else if (d.length === 2) result = `0:${d}`
+  else if (d.length === 3) result = `${d[0]}:${d.slice(1)}`
+  else {
+    const mins = parseInt(d.slice(0, 2), 10)
+    result = `${mins}:${d.slice(2)}`
+  }
+  if (parseGT(result) > 1200) return '20:00'
+  return result
+}
+
+function emptyEvent(): ScoreboardEvent {
+  return { gt: '', type: 'penalty', team: 'A', player: '', penalties: [{ penalty_type: 'minor', infraction: '' }] }
+}
+
+function emptyPlayerAnswer(): ScoreboardPlayerAnswer {
+  return { team: 'A', player: '', correct_gt: '', correct_secs: 0, wash_out: false, already_expired: false }
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
 const HANDBOOK_SECTIONS = [
   'Section 1 – Playing Area',
   'Section 2 – Teams',
@@ -177,7 +260,6 @@ export default function QuestionForm({ question }: Props) {
   const router = useRouter()
   const [supabase] = useState(() => createClient())
 
-  // Navigation context — read from sessionStorage set by the questions list page
   const [backUrl, setBackUrl] = useState('/admin/questions')
   const [nextId, setNextId] = useState<string | null>(null)
   const [nextPosition, setNextPosition] = useState<{ current: number; total: number } | null>(null)
@@ -195,21 +277,22 @@ export default function QuestionForm({ question }: Props) {
         if (idx < ids.length - 1) setNextId(ids[idx + 1])
       }
     } catch {
-      // sessionStorage unavailable or malformed — graceful degradation
+      // sessionStorage unavailable or malformed
     }
   }, [question?.id])
 
-  // Derive initial mode from existing question data
-  function initialMode(): 'multiple_choice' | 'multi_select' | 'compound' {
+  type Mode = 'multiple_choice' | 'multi_select' | 'compound' | 'scoreboard'
+
+  function initialMode(): Mode {
+    if (question?.question_type === 'scoreboard') return 'scoreboard'
     if (question?.question_type === 'compound') return 'compound'
     if (question?.answer_type === 'multi_select') return 'multi_select'
     return 'multiple_choice'
   }
 
-  // Single combined mode replaces separate answerType + questionType
-  const [mode, setMode] = useState<'multiple_choice' | 'multi_select' | 'compound'>(initialMode)
+  const [mode, setMode] = useState<Mode>(initialMode)
 
-  // Shared metadata fields
+  // Shared metadata
   const [text, setText] = useState(question?.text ?? '')
   const [ruleRefs, setRuleRefs] = useState<string[]>(
     question?.rule_references?.length ? question.rule_references : (question?.rule_number ? [question.rule_number] : [''])
@@ -222,7 +305,7 @@ export default function QuestionForm({ question }: Props) {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
-  // Standard question fields (used when mode !== 'compound')
+  // Standard question fields
   const [options, setOptions] = useState<string[]>(question?.options?.length ? question.options : ['', '', '', ''])
   const [correctAnswers, setCorrectAnswers] = useState<number[]>(question?.correct_answers ?? [])
   const [rationale, setRationale] = useState(question?.rationale ?? '')
@@ -234,7 +317,42 @@ export default function QuestionForm({ question }: Props) {
       : [emptySubQuestion(), emptySubQuestion()]
   )
 
-  // ─── Standard question helpers ─────────────────────────────────────────────
+  // Scoreboard fields
+  const sbConfig = question?.question_type === 'scoreboard' ? (question.sub_questions?.[0] as any) : null
+  const [sbPeriod, setSbPeriod] = useState<1 | 2 | 3 | 4>(sbConfig?.period ?? 3)
+  const [sbStartGT, setSbStartGT] = useState(sbConfig?.start_gt ? formatGT(sbConfig.start_gt) : '3:22')
+  const [sbEvents, setSbEvents] = useState<ScoreboardEvent[]>(
+    sbConfig?.events
+      ? sbConfig.events.map((e: any) => ({ ...e, gt: typeof e.gt === 'number' ? formatGT(e.gt) : (e.gt ?? '') }))
+      : []
+  )
+  const [sbPlayerAnswers, setSbPlayerAnswers] = useState<ScoreboardPlayerAnswer[]>(
+    sbConfig?.player_answers
+      ? sbConfig.player_answers.map((a: any) => ({
+          ...a,
+          correct_gt: a.correct_gt ?? (a.correct_secs > 0 ? formatGT(a.correct_secs) : ''),
+          already_expired: a.already_expired ?? false,
+        }))
+      : []
+  )
+
+  // Keep Correct Answers fully in sync with penalty events — team/player come from the event
+  useEffect(() => {
+    if (mode !== 'scoreboard') return
+    const penaltyEvts = sbEvents.filter((e) => e.type === 'penalty' && e.player.trim())
+    setSbPlayerAnswers((prev) =>
+      penaltyEvts.map((evt, idx) => ({
+        team: evt.team,
+        player: evt.player.trim(),
+        correct_gt: prev[idx]?.correct_gt ?? '',
+        correct_secs: prev[idx]?.correct_secs ?? 0,
+        wash_out: prev[idx]?.wash_out ?? false,
+        already_expired: prev[idx]?.already_expired ?? false,
+      }))
+    )
+  }, [sbEvents, mode])
+
+  // ── Standard question helpers ─────────────────────────────────────────────
 
   function updateOption(i: number, val: string) {
     const u = [...options]; u[i] = val; setOptions(u)
@@ -252,7 +370,7 @@ export default function QuestionForm({ question }: Props) {
     }
   }
 
-  // ─── Rule reference helpers ────────────────────────────────────────────────
+  // ── Rule reference helpers ───────────────────────────────────────────────
 
   function updateRuleRef(i: number, val: string) {
     const u = [...ruleRefs]; u[i] = val; setRuleRefs(u)
@@ -263,7 +381,7 @@ export default function QuestionForm({ question }: Props) {
     setRuleRefs(ruleRefs.filter((_, x) => x !== i))
   }
 
-  // ─── Compound sub-question helpers ────────────────────────────────────────
+  // ── Compound helpers ─────────────────────────────────────────────────────
 
   function updateSubField<K extends keyof SubQuestionDraft>(sqIdx: number, key: K, val: SubQuestionDraft[K]) {
     setSubQuestions((prev) => prev.map((sq, i) => i === sqIdx ? { ...sq, [key]: val } : sq))
@@ -308,16 +426,59 @@ export default function QuestionForm({ question }: Props) {
     }))
   }
 
-  function addSubQuestion() {
-    setSubQuestions((prev) => [...prev, emptySubQuestion()])
-  }
-
+  function addSubQuestion() { setSubQuestions((prev) => [...prev, emptySubQuestion()]) }
   function removeSubQuestion(sqIdx: number) {
     if (subQuestions.length <= 2) return
     setSubQuestions((prev) => prev.filter((_, i) => i !== sqIdx))
   }
 
-  // ─── Save logic ───────────────────────────────────────────────────────────
+  // ── Scoreboard helpers ───────────────────────────────────────────────────
+
+  function addSbEvent() { setSbEvents((prev) => [...prev, emptyEvent()]) }
+  function removeSbEvent(i: number) { setSbEvents((prev) => prev.filter((_, x) => x !== i)) }
+  function updateSbEvent<K extends keyof ScoreboardEvent>(i: number, key: K, val: ScoreboardEvent[K]) {
+    setSbEvents((prev) => prev.map((e, x) => x === i ? { ...e, [key]: val } : e))
+  }
+
+  function setSbEventPenaltyType(evtIdx: number, type: SinglePenalty['penalty_type'] | 'multiple') {
+    setSbEvents((prev) => prev.map((e, i) => {
+      if (i !== evtIdx) return e
+      if (type === 'multiple') {
+        const base = e.penalties.length > 0 ? e.penalties : [{ penalty_type: 'minor' as const, infraction: '' }]
+        return { ...e, penalties: base.length < 2 ? [...base, { penalty_type: 'minor' as const, infraction: '' }] : base }
+      }
+      return { ...e, penalties: [{ penalty_type: type, infraction: e.penalties[0]?.infraction ?? '' }] }
+    }))
+  }
+
+  function updateSbEventPenalty(evtIdx: number, penIdx: number, key: keyof SinglePenalty, val: string) {
+    setSbEvents((prev) => prev.map((e, i) => {
+      if (i !== evtIdx) return e
+      const penalties = e.penalties.map((p, j) => j === penIdx ? { ...p, [key]: val } : p)
+      return { ...e, penalties }
+    }))
+  }
+
+  function addSbEventPenalty(evtIdx: number) {
+    setSbEvents((prev) => prev.map((e, i) =>
+      i === evtIdx ? { ...e, penalties: [...e.penalties, { penalty_type: 'minor' as const, infraction: '' }] } : e
+    ))
+  }
+
+  function removeSbEventPenalty(evtIdx: number, penIdx: number) {
+    setSbEvents((prev) => prev.map((e, i) => {
+      if (i !== evtIdx || e.penalties.length <= 1) return e
+      return { ...e, penalties: e.penalties.filter((_, j) => j !== penIdx) }
+    }))
+  }
+
+  function addSbPlayerAnswer() { setSbPlayerAnswers((prev) => [...prev, emptyPlayerAnswer()]) }
+  function removeSbPlayerAnswer(i: number) { setSbPlayerAnswers((prev) => prev.filter((_, x) => x !== i)) }
+  function updateSbPlayerAnswer<K extends keyof ScoreboardPlayerAnswer>(i: number, key: K, val: ScoreboardPlayerAnswer[K]) {
+    setSbPlayerAnswers((prev) => prev.map((a, x) => x === i ? { ...a, [key]: val } : a))
+  }
+
+  // ── Save logic ────────────────────────────────────────────────────────────
 
   async function doSave(): Promise<boolean> {
     setError('')
@@ -330,8 +491,55 @@ export default function QuestionForm({ question }: Props) {
 
     let payload: Record<string, unknown>
 
-    if (mode === 'compound') {
-      // Validate sub-questions
+    if (mode === 'scoreboard') {
+      if (sbEvents.length === 0) { setError('Add at least one event.'); return false }
+      if (sbPlayerAnswers.length === 0) { setError('Add at least one correct answer row.'); return false }
+      if (!rationale.trim()) { setError('Rationale is required.'); return false }
+
+      for (let i = 0; i < sbEvents.length; i++) {
+        const e = sbEvents[i]
+        if (parseGT(e.gt) <= 0) { setError(`Event ${i + 1}: enter a valid game time (e.g. 3:18).`); return false }
+        if (!gtSecondsValid(e.gt)) { setError(`Event ${i + 1}: seconds must be 0–59.`); return false }
+        if (!e.team) { setError(`Event ${i + 1}: team is required.`); return false }
+        if (e.type === 'penalty') {
+          if (!e.player.trim()) { setError(`Event ${i + 1}: player number is required.`); return false }
+          if (e.penalties.length === 0) { setError(`Event ${i + 1}: select a penalty type.`); return false }
+        }
+      }
+
+      for (let i = 0; i < sbPlayerAnswers.length; i++) {
+        const a = sbPlayerAnswers[i]
+        if (!a.player.trim()) { setError(`Answer ${i + 1}: player number is required.`); return false }
+        if (!a.already_expired && !a.wash_out && !parseGT(a.correct_gt)) { setError(`Answer ${i + 1}: enter a correct time or mark as Wash Out.`); return false }
+        if (!a.already_expired && !a.wash_out && !gtSecondsValid(a.correct_gt)) { setError(`Answer ${i + 1}: seconds must be 0–59.`); return false }
+      }
+
+      payload = {
+        text: text.trim(),
+        answer_type: 'multiple_choice' as const,
+        options: [],
+        correct_answers: [],
+        rationale: rationale.trim(),
+        sub_questions: [{
+          period: sbPeriod,
+          start_gt: parseGT(sbStartGT) || 202,
+          events: sbEvents.map((e) => ({ ...e, gt: parseGT(e.gt) })),
+          player_answers: sbPlayerAnswers.map(({ correct_gt, ...rest }) => ({
+            ...rest,
+            correct_secs: parseGT(correct_gt),
+          })),
+        }],
+        rule_number: filledRefs[0] ?? '',
+        rule_references: filledRefs,
+        handbook_section: handbookSection,
+        situation_id: situationId.trim().toUpperCase(),
+        league,
+        category,
+        question_type: 'scoreboard' as const,
+        is_approved: isApproved,
+      }
+
+    } else if (mode === 'compound') {
       for (let i = 0; i < subQuestions.length; i++) {
         const sq = subQuestions[i]
         if (!sq.text.trim()) { setError(`Sub-question ${i + 1} is missing its question text.`); return false }
@@ -365,6 +573,7 @@ export default function QuestionForm({ question }: Props) {
         question_type: 'compound' as const,
         is_approved: isApproved,
       }
+
     } else {
       if (correctAnswers.length === 0) { setError('Select at least one correct answer.'); return false }
       if (!rationale.trim()) { setError('Rationale is required.'); return false }
@@ -422,29 +631,29 @@ export default function QuestionForm({ question }: Props) {
     router.refresh()
   }
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="max-w-2xl space-y-6">
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
 
-      {/* Combined question mode selector */}
+      {/* Question type selector */}
       <div className="space-y-2">
         <Label>Question Type</Label>
         <div className="flex gap-3 flex-wrap">
           {([
-            ['multiple_choice', 'Multiple Choice (one answer)'],
-            ['multi_select', 'Multi-Select (all that apply)'],
+            ['multiple_choice', 'Multiple Choice'],
+            ['multi_select', 'Multi-Select'],
             ['compound', 'Compound (multi-part)'],
+            ['scoreboard', 'Scoreboard (Penalty Clock)'],
           ] as const).map(([m, label]) => (
             <button
               key={m}
               onClick={() => {
                 if (m === 'compound' && mode !== 'compound') {
-                  // Carry current options/answers into the first sub-question
                   const seeded: SubQuestionDraft = {
                     text: '',
-                    answer_type: mode,
+                    answer_type: mode === 'multiple_choice' || mode === 'multi_select' ? mode : 'multiple_choice',
                     options: options.length ? [...options] : ['', '', '', ''],
                     correct_answers: [...correctAnswers],
                     rationale,
@@ -464,7 +673,12 @@ export default function QuestionForm({ question }: Props) {
         </div>
         {mode === 'compound' && (
           <p className="text-xs text-gray-500">
-            The situation text is shown to the user throughout the question. Each sub-question has its own options, correct answer, and rationale.
+            The situation text is shown throughout. Each sub-question has its own options, correct answer, and rationale.
+          </p>
+        )}
+        {mode === 'scoreboard' && (
+          <p className="text-xs text-gray-500">
+            An animated penalty clock plays out the situation. The user communicates each player's time to the timekeeper.
           </p>
         )}
       </div>
@@ -479,15 +693,16 @@ export default function QuestionForm({ question }: Props) {
           placeholder={
             mode === 'compound'
               ? 'Describe the on-ice situation that all sub-questions below will refer to…'
+              : mode === 'scoreboard'
+              ? 'Describe the situation — this appears above the penalty clock…'
               : 'Describe the on-ice situation or question…'
           }
         />
       </div>
 
-      {/* ── Standard question: options + rationale ── */}
-      {mode !== 'compound' && (
+      {/* ── Standard question ── */}
+      {(mode === 'multiple_choice' || mode === 'multi_select') && (
         <>
-
           <div className="space-y-2">
             <Label>Answer Options <span className="text-gray-400 font-normal">(click the letter to mark correct)</span></Label>
             <div className="space-y-2">
@@ -525,7 +740,7 @@ export default function QuestionForm({ question }: Props) {
         </>
       )}
 
-      {/* ── Compound question: sub-question builder ── */}
+      {/* ── Compound question ── */}
       {mode === 'compound' && (
         <div className="space-y-4">
           <Label>Sub-Questions</Label>
@@ -549,16 +764,12 @@ export default function QuestionForm({ question }: Props) {
                   ))}
                 </div>
                 {subQuestions.length > 2 && (
-                  <button
-                    onClick={() => removeSubQuestion(sqIdx)}
-                    className="text-xs text-red-500 hover:text-red-700 shrink-0"
-                  >
+                  <button onClick={() => removeSubQuestion(sqIdx)} className="text-xs text-red-500 hover:text-red-700 shrink-0">
                     Remove
                   </button>
                 )}
               </div>
 
-              {/* Sub-question text */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">Question</label>
                 <AutoResizeTextarea
@@ -570,7 +781,6 @@ export default function QuestionForm({ question }: Props) {
                 />
               </div>
 
-              {/* Options */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">
                   Answer Options <span className="font-normal">(click the letter to mark correct{sq.answer_type === 'multi_select' ? ' — multiple allowed' : ''})</span>
@@ -603,7 +813,6 @@ export default function QuestionForm({ question }: Props) {
                 <Button variant="outline" size="sm" onClick={() => addSubOption(sqIdx)} className="mt-1">+ Add Option</Button>
               </div>
 
-              {/* Rationale */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-gray-500">Rationale</label>
                 <AutoResizeTextarea
@@ -616,8 +825,325 @@ export default function QuestionForm({ question }: Props) {
               </div>
             </div>
           ))}
-
           <Button variant="outline" onClick={addSubQuestion}>+ Add Part</Button>
+        </div>
+      )}
+
+      {/* ── Scoreboard question ── */}
+      {mode === 'scoreboard' && (
+        <div className="space-y-5">
+
+          {/* Game setup */}
+          <div className="space-y-2">
+            <Label>Game Setup</Label>
+            <div className="flex gap-4 items-end flex-wrap">
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-500">Period</label>
+                <div className="flex gap-1">
+                  {([1, 2, 3, 4] as const).map((p) => (
+                    <button
+                      key={p}
+                      onClick={() => setSbPeriod(p)}
+                      className={`w-10 h-9 rounded-md border text-sm font-medium transition-all ${
+                        sbPeriod === p ? 'border-slate-900 bg-slate-900 text-white' : 'border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {p === 4 ? 'OT' : p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-gray-500">Starting game time (m:ss)</label>
+                <Input
+                  value={sbStartGT}
+                  onChange={(e) => setSbStartGT(maskGameTime(e.target.value))}
+                  placeholder="mm:ss"
+                  className={`w-24 font-mono ${!gtSecondsValid(sbStartGT) ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                />
+                {!gtSecondsValid(sbStartGT) && (
+                  <p className="text-red-500 text-xs">Seconds must be 0–59</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Events */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label>Events <span className="text-gray-400 font-normal text-xs ml-1">— add in chronological order, highest game time first</span></Label>
+            </div>
+
+            {sbEvents.length === 0 && (
+              <p className="text-sm text-gray-400 py-2">No events yet. Add the penalties and goal that make up the situation.</p>
+            )}
+
+            <div className="space-y-3">
+              {sbEvents.map((evt, i) => {
+                const isMultiple = evt.penalties.length > 1
+                const activeType = isMultiple ? 'multiple' : (evt.penalties[0]?.penalty_type ?? 'minor')
+
+                return (
+                  <div key={i} className="border border-gray-200 rounded-xl p-3 space-y-3 bg-gray-50">
+                    {/* Top row: game time, event type, team, player, remove */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <div className="space-y-0.5">
+                        <label className="text-xs text-gray-400">Game time</label>
+                        <Input
+                          value={evt.gt}
+                          onChange={(e) => updateSbEvent(i, 'gt', maskGameTime(e.target.value))}
+                          placeholder="mm:ss"
+                          className={`w-20 font-mono text-sm ${!gtSecondsValid(evt.gt) ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                        />
+                        {!gtSecondsValid(evt.gt) && (
+                          <p className="text-red-500 text-xs">Seconds must be 0–59</p>
+                        )}
+                      </div>
+
+                      <div className="space-y-0.5">
+                        <label className="text-xs text-gray-400">Type</label>
+                        <div className="flex gap-1">
+                          {(['penalty', 'goal'] as const).map((t) => (
+                            <button
+                              key={t}
+                              onClick={() => updateSbEvent(i, 'type', t)}
+                              className={`px-3 h-9 rounded-md border text-xs font-medium capitalize transition-all ${
+                                evt.type === t ? 'border-slate-700 bg-slate-700 text-white' : 'border-gray-200 hover:border-gray-300'
+                              }`}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-0.5">
+                        <label className="text-xs text-gray-400">Team</label>
+                        <div className="flex gap-1">
+                          {(['A', 'B'] as const).map((t) => (
+                            <button
+                              key={t}
+                              onClick={() => updateSbEvent(i, 'team', t)}
+                              className={`w-9 h-9 rounded-md border text-sm font-medium transition-all ${
+                                evt.team === t ? 'border-slate-700 bg-slate-700 text-white' : 'border-gray-200 hover:border-gray-300'
+                              }`}
+                            >
+                              {t}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {evt.type === 'penalty' && (
+                        <div className="space-y-0.5">
+                          <label className="text-xs text-gray-400">Player #</label>
+                          <Input
+                            value={evt.player}
+                            onChange={(e) => updateSbEvent(i, 'player', e.target.value)}
+                            placeholder="e.g. 43"
+                            className="w-20 text-sm"
+                          />
+                        </div>
+                      )}
+
+                      <button
+                        onClick={() => removeSbEvent(i)}
+                        className="text-gray-300 hover:text-red-500 text-xl ml-auto self-end pb-1"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    {/* Penalty type selector + penalties list */}
+                    {evt.type === 'penalty' && (
+                      <div className="space-y-2">
+                        <div className="space-y-0.5">
+                          <label className="text-xs text-gray-400">Penalty type</label>
+                          <div className="flex gap-1 flex-wrap">
+                            {([
+                              ['minor', 'Minor'],
+                              ['double_minor', 'Double Minor'],
+                              ['major', 'Major'],
+                              ['match', 'Match'],
+                              ['multiple', 'Multiple'],
+                            ] as const).map(([type, label]) => (
+                              <button
+                                key={type}
+                                onClick={() => setSbEventPenaltyType(i, type)}
+                                className={`px-3 h-8 rounded-md border text-xs font-medium transition-all ${
+                                  activeType === type
+                                    ? 'border-slate-700 bg-slate-700 text-white'
+                                    : 'border-gray-200 hover:border-gray-300'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Single penalty: infraction field inline */}
+                        {!isMultiple && (
+                          <div className="space-y-0.5">
+                            <label className="text-xs text-gray-400">For (optional — e.g. Cross-checking)</label>
+                            <Input
+                              value={evt.penalties[0]?.infraction ?? ''}
+                              onChange={(e) => updateSbEventPenalty(i, 0, 'infraction', e.target.value)}
+                              placeholder="e.g. High-Sticking, Holding…"
+                              className="text-sm"
+                            />
+                          </div>
+                        )}
+
+                        {/* Multiple penalties: list with type + infraction per entry */}
+                        {isMultiple && (
+                          <div className="space-y-2 pl-2 border-l-2 border-gray-200">
+                            {evt.penalties.map((pen, penIdx) => (
+                              <div key={penIdx} className="flex items-end gap-2 flex-wrap">
+                                <div className="space-y-0.5">
+                                  <label className="text-xs text-gray-400">Type</label>
+                                  <select
+                                    value={pen.penalty_type}
+                                    onChange={(e) => updateSbEventPenalty(i, penIdx, 'penalty_type', e.target.value)}
+                                    className="h-9 border rounded-md px-2 text-xs"
+                                  >
+                                    {Object.entries(PENALTY_DISPLAY).map(([val, lbl]) => (
+                                      <option key={val} value={val}>{lbl}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div className="flex-1 space-y-0.5 min-w-32">
+                                  <label className="text-xs text-gray-400">For (optional)</label>
+                                  <Input
+                                    value={pen.infraction}
+                                    onChange={(e) => updateSbEventPenalty(i, penIdx, 'infraction', e.target.value)}
+                                    placeholder="e.g. Fighting, Roughing…"
+                                    className="text-sm"
+                                  />
+                                </div>
+                                {evt.penalties.length > 1 && (
+                                  <button
+                                    onClick={() => removeSbEventPenalty(i, penIdx)}
+                                    className="text-gray-300 hover:text-red-500 text-lg pb-0.5"
+                                  >
+                                    ×
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => addSbEventPenalty(i)}
+                              className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                            >
+                              + Add penalty
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <Button variant="outline" size="sm" onClick={addSbEvent}>+ Add Event</Button>
+          </div>
+
+          {/* Correct answers */}
+          <div className="space-y-2">
+            <Label>
+              Correct Answers <span className="text-gray-400 font-normal text-xs ml-1">— what the clock shows after the key event</span>
+            </Label>
+            <p className="text-xs text-gray-500">
+              Auto-populated from penalty events above. For each player, enter the time remaining, mark as <strong>Wash Out</strong> if their penalty is released by the goal, or mark as <strong>Already Expired</strong> if the penalty finished before the key event (these won&apos;t be shown as answer options).
+            </p>
+
+            {sbPlayerAnswers.length === 0 && (
+              <p className="text-sm text-gray-400 py-1">Add penalty events above to populate this section.</p>
+            )}
+
+            <div className="space-y-2">
+              {sbPlayerAnswers.map((ans, i) => (
+                <div
+                  key={i}
+                  className={`border rounded-xl px-3 py-2.5 flex items-center gap-3 flex-wrap transition-colors ${
+                    ans.already_expired ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-white border-gray-200'
+                  }`}
+                >
+                  {/* Read-only team + player */}
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-700 shrink-0">
+                    <span className="w-7 h-7 rounded-md bg-slate-700 text-white text-xs font-semibold flex items-center justify-center">{ans.team}</span>
+                    <span>#{ans.player || '—'}</span>
+                  </span>
+
+                  {/* Time input — hidden when already_expired */}
+                  {!ans.already_expired && (
+                    <div className="space-y-0.5">
+                      <label className="text-xs text-gray-400">Time remaining</label>
+                      <Input
+                        value={ans.wash_out ? '' : ans.correct_gt}
+                        onChange={(e) => updateSbPlayerAnswer(i, 'correct_gt', maskGameTime(e.target.value))}
+                        placeholder="e.g. 1:34"
+                        disabled={ans.wash_out}
+                        className={`w-24 font-mono text-sm disabled:opacity-40 ${!ans.wash_out && !gtSecondsValid(ans.correct_gt) ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                      />
+                      {!ans.wash_out && !gtSecondsValid(ans.correct_gt) && (
+                        <p className="text-red-500 text-xs">Seconds must be 0–59</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Wash Out toggle — hidden when already_expired */}
+                  {!ans.already_expired && (
+                    <button
+                      onClick={() => {
+                        const next = !ans.wash_out
+                        updateSbPlayerAnswer(i, 'wash_out', next)
+                        if (next) updateSbPlayerAnswer(i, 'correct_secs', 0)
+                      }}
+                      className={`h-8 px-3 rounded-md border text-xs font-medium transition-all ${
+                        ans.wash_out
+                          ? 'border-amber-500 bg-amber-50 text-amber-700'
+                          : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                      }`}
+                    >
+                      Wash Out
+                    </button>
+                  )}
+
+                  {/* Already Expired toggle */}
+                  <button
+                    onClick={() => {
+                      const next = !ans.already_expired
+                      updateSbPlayerAnswer(i, 'already_expired', next)
+                      if (next) {
+                        updateSbPlayerAnswer(i, 'wash_out', false)
+                        updateSbPlayerAnswer(i, 'correct_secs', 0)
+                      }
+                    }}
+                    className={`h-8 px-3 rounded-md border text-xs font-medium transition-all ${
+                      ans.already_expired
+                        ? 'border-gray-500 bg-gray-100 text-gray-700'
+                        : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                    }`}
+                  >
+                    Already Expired
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Rationale */}
+          <div className="space-y-2">
+            <Label>Rationale / Explanation</Label>
+            <AutoResizeTextarea
+              minHeight={80}
+              value={rationale}
+              onChange={setRationale}
+              placeholder="Explain the correct clock times after the event, referencing the rule…"
+            />
+          </div>
         </div>
       )}
 
@@ -636,11 +1162,11 @@ export default function QuestionForm({ question }: Props) {
           </select>
         </div>
         <div className="space-y-2">
-          <Label>Situation ID <span className="text-gray-400 font-normal">(e.g. 8A)</span></Label>
+          <Label>Situation ID <span className="text-gray-400 font-normal">(e.g. 16B)</span></Label>
           <Input
             value={situationId}
             onChange={(e) => setSituationId(e.target.value)}
-            placeholder="e.g. 8A"
+            placeholder="e.g. 16B"
             className="uppercase"
           />
         </div>
@@ -658,7 +1184,7 @@ export default function QuestionForm({ question }: Props) {
               <Input
                 value={ref}
                 onChange={(e) => updateRuleRef(i, e.target.value)}
-                placeholder={i === 0 ? 'Primary rule (e.g. 15.2)' : 'Additional rule or table (e.g. tbl.14 or tbl.14(Ex.G12))'}
+                placeholder={i === 0 ? 'Primary rule (e.g. 16.2)' : 'Additional rule or table (e.g. tbl.12(Ex.H10))'}
               />
               {ruleRefs.length > 1 && (
                 <button onClick={() => removeRuleRef(i)} className="text-gray-400 hover:text-red-500 text-lg shrink-0">×</button>

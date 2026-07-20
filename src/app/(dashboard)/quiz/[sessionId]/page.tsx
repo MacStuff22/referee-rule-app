@@ -10,6 +10,92 @@ import type { Question, QuizSession } from '@/types'
 
 type AnswerState = 'unanswered' | 'correct' | 'incorrect'
 
+// ─── Scoreboard helpers ──────────────────────────────────────────────────────
+
+function sbFormatGT(secs: number): string {
+  const m = Math.floor(Math.abs(secs) / 60)
+  const s = Math.abs(secs) % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+const SB_PENALTY_SECS: Record<string, number> = {
+  minor: 120, double_minor: 240, major: 300, match: 300,
+}
+
+function sbEventTotalSecs(evt: any): number {
+  return (evt.penalties ?? []).reduce((sum: number, p: any) => sum + (SB_PENALTY_SECS[p.penalty_type] ?? 120), 0)
+}
+
+function sbPenaltyLabel(evt: any): string {
+  if (!evt.penalties?.length) return ''
+  return evt.penalties.map((p: any) => {
+    const type = p.penalty_type === 'double_minor' ? 'Double Minor'
+      : p.penalty_type === 'major' ? 'Major'
+      : p.penalty_type === 'match' ? 'Match'
+      : 'Minor'
+    return p.infraction ? `${type} (${p.infraction})` : type
+  }).join(' + ')
+}
+
+interface SbOption { key: string; label: string; secs: number | null; isWashOut: boolean; isCorrect: boolean }
+
+function generateSbOptions(playerAnswer: any, allAnswers: any[], events: any[]): SbOption[] {
+  const goalEvt = events.find((e: any) => e.type === 'goal')
+  const goalGT: number = goalEvt?.gt ?? 0
+
+  // Naive remaining = total penalty time - elapsed (without Rule 16.2 adjustment)
+  const penEvt = events.find((e: any) => e.type === 'penalty' && e.team === playerAnswer.team && e.player === playerAnswer.player)
+  const naiveSecs = penEvt
+    ? Math.max(0, sbEventTotalSecs(penEvt) - (penEvt.gt - goalGT))
+    : 0
+
+  const correct: SbOption = playerAnswer.wash_out
+    ? { key: 'wo', label: 'Washed Out', secs: null, isWashOut: true, isCorrect: true }
+    : { key: String(playerAnswer.correct_secs), label: sbFormatGT(playerAnswer.correct_secs), secs: playerAnswer.correct_secs, isWashOut: false, isCorrect: true }
+
+  const pool: SbOption[] = []
+  const seen = new Set([correct.key])
+
+  const tryAdd = (opt: SbOption) => {
+    if (!seen.has(opt.key)) { seen.add(opt.key); pool.push(opt) }
+  }
+
+  // Naive reading (most common wrong answer)
+  if (!playerAnswer.wash_out && naiveSecs > 0 && naiveSecs !== playerAnswer.correct_secs) {
+    tryAdd({ key: String(naiveSecs), label: sbFormatGT(naiveSecs), secs: naiveSecs, isWashOut: false, isCorrect: false })
+  }
+
+  // Other players' correct times
+  for (const other of allAnswers) {
+    if (other.team === playerAnswer.team && other.player === playerAnswer.player) continue
+    if (other.already_expired) continue
+    if (other.wash_out) {
+      tryAdd({ key: 'wo', label: 'Washed Out', secs: null, isWashOut: true, isCorrect: false })
+    } else {
+      tryAdd({ key: String(other.correct_secs), label: sbFormatGT(other.correct_secs), secs: other.correct_secs, isWashOut: false, isCorrect: false })
+    }
+  }
+
+  // Wash Out as a distractor if not already correct
+  if (!playerAnswer.wash_out) tryAdd({ key: 'wo', label: 'Washed Out', secs: null, isWashOut: true, isCorrect: false })
+
+  // Naive readings of other players' penalties
+  for (const other of allAnswers) {
+    if (other.team === playerAnswer.team && other.player === playerAnswer.player) continue
+    if (other.already_expired) continue
+    const oEvt = events.find((e: any) => e.type === 'penalty' && e.team === other.team && e.player === other.player)
+    if (oEvt) {
+      const oNaive = Math.max(0, sbEventTotalSecs(oEvt) - (oEvt.gt - goalGT))
+      if (oNaive > 0) tryAdd({ key: String(oNaive), label: sbFormatGT(oNaive), secs: oNaive, isWashOut: false, isCorrect: false })
+    }
+  }
+
+  // Shuffle pool and take up to 3 distractors
+  const shuffled = pool.sort(() => Math.random() - 0.5).slice(0, 3)
+  const all = [correct, ...shuffled].sort(() => Math.random() - 0.5)
+  return all
+}
+
 const CLOCK_ENTRY = /^(.+?)\s*[–—]\s*(\d+:\d{2}|washed\s*out)$/i
 
 function renderOptionText(opt: string) {
@@ -50,9 +136,14 @@ export default function QuizSessionPage() {
 
   // Compound question state
   const [compoundSubIndex, setCompoundSubIndex] = useState(0)
-  const [compoundSubAnswers, setCompoundSubAnswers] = useState<number[][]>([]) // one array per sub-question
+  const [compoundSubAnswers, setCompoundSubAnswers] = useState<number[][]>([])
   const [compoundSubCorrect, setCompoundSubCorrect] = useState<boolean[]>([])
   const [subShuffledOrders, setSubShuffledOrders] = useState<number[][]>([])
+
+  // Scoreboard question state — one selection per active (non-expired) player
+  const [sbSelections, setSbSelections] = useState<(number | 'wash_out' | null)[]>([])
+  const [sbOptions, setSbOptions] = useState<SbOption[][]>([])
+  const [sbPlayerCorrect, setSbPlayerCorrect] = useState<boolean[]>([])
 
   useEffect(() => {
     loadCurrentQuestion()
@@ -76,6 +167,9 @@ export default function QuizSessionPage() {
     setCompoundSubAnswers([])
     setCompoundSubCorrect([])
     setSubShuffledOrders([])
+    setSbSelections([])
+    setSbOptions([])
+    setSbPlayerCorrect([])
 
     const { data: sess } = await supabase
       .from('quiz_sessions')
@@ -99,6 +193,11 @@ export default function QuizSessionPage() {
     if (q) {
       if (q.question_type === 'compound') {
         setSubShuffledOrders((q.sub_questions ?? []).map((sq: any) => shuffleIndices(sq.options.length)))
+      } else if (q.question_type === 'scoreboard') {
+        const cfg = q.sub_questions?.[0] as any
+        const active = (cfg?.player_answers ?? []).filter((a: any) => !a.already_expired)
+        setSbSelections(active.map(() => null))
+        setSbOptions(active.map((a: any) => generateSbOptions(a, cfg.player_answers, cfg.events ?? [])))
       } else {
         setShuffledOrder(shuffleIndices(q.options.length))
       }
@@ -182,6 +281,34 @@ export default function QuizSessionPage() {
     setCompoundSubIndex((i) => i + 1)
     setSelected([])
     setAnswerState('unanswered')
+  }
+
+  // ─── Scoreboard question submit ─────────────────────────────────────────────
+
+  async function submitScoreboardAnswer() {
+    if (!question || !session) return
+    const cfg = question.sub_questions?.[0] as any
+    const active = (cfg?.player_answers ?? []).filter((a: any) => !a.already_expired)
+    if (sbSelections.some((s) => s === null)) return
+
+    const results = active.map((a: any, i: number) => {
+      const sel = sbSelections[i]
+      if (a.wash_out) return sel === 'wash_out'
+      return sel === a.correct_secs
+    })
+    const isCorrect = results.every(Boolean)
+
+    setSbPlayerCorrect(results)
+    setAnswerState(isCorrect ? 'correct' : 'incorrect')
+
+    // Encode: each player's selection as seconds (or -999 for wash_out), -1 as separator
+    const encoded = sbSelections.map((s) => (s === 'wash_out' ? -999 : (s ?? -1)))
+    await supabase.from('quiz_answers').insert({
+      session_id: session.id,
+      question_id: question.id,
+      selected_answers: encoded,
+      is_correct: isCorrect,
+    })
   }
 
   // ─── Advance to next question_id ────────────────────────────────────────────
@@ -339,6 +466,146 @@ export default function QuizSessionPage() {
         ) : !isLastSubQ ? (
           <Button onClick={advanceSubQuestion} className="w-full" size="lg">
             Next Part →
+          </Button>
+        ) : (
+          <Button onClick={nextQuestion} className="w-full" size="lg">
+            {isLastQuestion ? 'See Results' : 'Next Question →'}
+          </Button>
+        )}
+      </div>
+    )
+  }
+
+  // ─── Scoreboard question render ──────────────────────────────────────────────
+
+  if (question.question_type === 'scoreboard') {
+    const cfg = question.sub_questions?.[0] as any
+    if (!cfg) return null
+    const { period, events = [], player_answers = [] } = cfg
+    const active = (player_answers as any[]).filter((a) => !a.already_expired)
+    const allAnswered = sbSelections.length === active.length && sbSelections.every((s) => s !== null)
+
+    return (
+      <div className="max-w-2xl mx-auto space-y-4">
+        {progressBar}
+
+        {/* Situation pinned at top */}
+        <div className="rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3">
+          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Situation</p>
+          <p className="text-sm text-blue-900 leading-relaxed">{question.text}</p>
+        </div>
+
+        {/* Events timeline */}
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Period {period} — Events</p>
+            <div className="space-y-1.5">
+              {(events as any[]).map((evt, i) => (
+                <div key={i} className="flex items-start gap-3 text-sm">
+                  <span className="font-mono text-gray-400 w-10 shrink-0 pt-px">{sbFormatGT(evt.gt)}</span>
+                  {evt.type === 'penalty' ? (
+                    <span>
+                      <span className={`font-semibold ${evt.team === 'A' ? 'text-blue-700' : 'text-red-700'}`}>
+                        Team {evt.team} #{evt.player}
+                      </span>
+                      {' — '}
+                      <span className="text-gray-700">{sbPenaltyLabel(evt)}</span>
+                    </span>
+                  ) : (
+                    <span className="font-semibold text-green-700">
+                      Goal — Team {evt.team}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Per-player sub-questions */}
+        <div className="space-y-3">
+          {active.map((ans: any, i: number) => {
+            const opts = sbOptions[i] ?? []
+            const sel = sbSelections[i]
+            const playerCorrect = sbPlayerCorrect[i]
+
+            return (
+              <Card key={i} className={
+                answerState === 'unanswered' ? '' :
+                playerCorrect ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'
+              }>
+                <CardContent className="pt-4 pb-4 space-y-3">
+                  <p className="text-sm font-medium text-gray-700">
+                    What time does the referee communicate for{' '}
+                    <span className={`font-semibold ${ans.team === 'A' ? 'text-blue-700' : 'text-red-700'}`}>
+                      Team {ans.team} #{ans.player}
+                    </span>
+                    ?
+                  </p>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {opts.map((opt) => {
+                      const isSelected = sel === (opt.isWashOut ? 'wash_out' : opt.secs)
+                      let style = 'border-gray-200 bg-white hover:border-gray-300 text-gray-700'
+                      if (answerState !== 'unanswered') {
+                        if (opt.isCorrect) style = 'border-green-500 bg-green-50 text-green-900'
+                        else if (isSelected && !opt.isCorrect) style = 'border-red-400 bg-red-50 text-red-900'
+                        else style = 'border-gray-100 bg-gray-50 text-gray-400'
+                      } else if (isSelected) {
+                        style = 'border-slate-900 bg-slate-50 text-slate-900'
+                      }
+
+                      return (
+                        <button
+                          key={opt.key}
+                          disabled={answerState !== 'unanswered'}
+                          onClick={() => {
+                            if (answerState !== 'unanswered') return
+                            setSbSelections((prev) => {
+                              const next = [...prev]
+                              next[i] = opt.isWashOut ? 'wash_out' : opt.secs!
+                              return next
+                            })
+                          }}
+                          className={`px-3 py-2.5 rounded-lg border-2 text-sm font-mono font-medium transition-all ${style}`}
+                        >
+                          {opt.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+
+                  {answerState !== 'unanswered' && !playerCorrect && (
+                    <p className="text-xs text-gray-600">
+                      Correct: <span className="font-semibold font-mono">{ans.wash_out ? 'Washed Out' : sbFormatGT(ans.correct_secs)}</span>
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+
+        {/* Rationale after submit */}
+        {answerState !== 'unanswered' && (
+          <Card className={answerState === 'correct' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
+            <CardContent className="pt-4 pb-4 space-y-2">
+              <p className={`font-semibold ${answerState === 'correct' ? 'text-green-800' : 'text-red-800'}`}>
+                {answerState === 'correct' ? '✅ Correct!' : '❌ Not quite.'}
+              </p>
+              <p className="text-sm text-gray-700">
+                <span className="font-medium">📖 Rationale: </span>{question.rationale}
+              </p>
+              <p className="text-sm text-gray-500">
+                <span className="font-medium">📋 Rule {question.rule_number}</span>
+              </p>
+            </CardContent>
+          </Card>
+        )}
+
+        {answerState === 'unanswered' ? (
+          <Button onClick={submitScoreboardAnswer} disabled={!allAnswered} className="w-full" size="lg">
+            Submit Answer
           </Button>
         ) : (
           <Button onClick={nextQuestion} className="w-full" size="lg">

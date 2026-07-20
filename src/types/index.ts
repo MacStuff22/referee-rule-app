@@ -1,6 +1,6 @@
 export type UserRole = 'admin' | 'user'
 export type League = 'NHL' | 'AHL' | 'both'
-export type QuestionType = 'situation' | 'written' | 'compound'
+export type QuestionType = 'situation' | 'written' | 'compound' | 'scoreboard'
 export type AnswerType = 'multiple_choice' | 'multi_select'
 export type SessionLength = 'quick' | 'standard' | 'full'
 
