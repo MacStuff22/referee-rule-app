@@ -725,7 +725,7 @@ export default function QuestionForm({ question }: Props) {
               : 'Describe the on-ice situation or question…'
           }
         />
-        {(mode === 'multiple_choice' || mode === 'multi_select') && !hasPenaltyTable && (
+        {(mode === 'multiple_choice' || mode === 'multi_select' || mode === 'compound') && !hasPenaltyTable && (
           <div className="text-right">
             <button
               type="button"
@@ -738,11 +738,8 @@ export default function QuestionForm({ question }: Props) {
         )}
       </div>
 
-      {/* ── Standard question ── */}
-      {(mode === 'multiple_choice' || mode === 'multi_select') && (
-        <>
-          {/* Penalty table (optional) */}
-          {hasPenaltyTable && (
+      {/* Penalty table (shown for standard and compound questions) */}
+      {(mode === 'multiple_choice' || mode === 'multi_select' || mode === 'compound') && hasPenaltyTable && (
             <div className="border border-gray-200 rounded-lg overflow-hidden">
                 <div className="grid grid-cols-2 divide-x divide-gray-200">
                   {(['A', 'B'] as const).map((team) => {
@@ -804,8 +801,11 @@ export default function QuestionForm({ question }: Props) {
                   </button>
                 </div>
               </div>
-          )}
+      )}
 
+      {/* ── Standard question ── */}
+      {(mode === 'multiple_choice' || mode === 'multi_select') && (
+        <>
           <div className="space-y-2">
             <Label>Answer Options <span className="text-gray-400 font-normal">(click the letter to mark correct)</span></Label>
             <div className="space-y-2">
