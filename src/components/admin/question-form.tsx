@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { ScoreboardPreview } from '@/components/admin/scoreboard-preview'
 import type { Question, SubQuestion } from '@/types'
 
 function AutoResizeTextarea({ value, onChange, placeholder, className, minHeight }: {
@@ -319,6 +321,7 @@ export default function QuestionForm({ question }: Props) {
 
   // Scoreboard fields
   const sbConfig = question?.question_type === 'scoreboard' ? (question.sub_questions?.[0] as any) : null
+  const [sbPreviewOpen, setSbPreviewOpen] = useState(false)
   const [sbPeriod, setSbPeriod] = useState<1 | 2 | 3 | 4>(sbConfig?.period ?? 3)
   const [sbStartGT, setSbStartGT] = useState(sbConfig?.start_gt ? formatGT(sbConfig.start_gt) : '3:22')
   const [sbEvents, setSbEvents] = useState<ScoreboardEvent[]>(
@@ -1144,6 +1147,42 @@ export default function QuestionForm({ question }: Props) {
               placeholder="Explain the correct clock times after the event, referencing the rule…"
             />
           </div>
+
+          {/* Preview button */}
+          <div className="pt-1">
+            <Button
+              variant="outline"
+              onClick={() => setSbPreviewOpen(true)}
+              disabled={sbEvents.length === 0 || !parseGT(sbStartGT)}
+            >
+              👁 Preview Simulation
+            </Button>
+            <p className="text-xs text-gray-400 mt-1.5">
+              Run the simulation as a student would see it — no save required.
+            </p>
+          </div>
+
+          {/* Preview dialog */}
+          <Dialog open={sbPreviewOpen} onOpenChange={setSbPreviewOpen}>
+            <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Simulation Preview</DialogTitle>
+              </DialogHeader>
+              {sbPreviewOpen && (
+                <ScoreboardPreview
+                  period={sbPeriod}
+                  startGT={parseGT(sbStartGT)}
+                  events={sbEvents.map((e) => ({ ...e, gt: parseGT(e.gt) }))}
+                  playerAnswers={sbPlayerAnswers.map((a) => ({
+                    ...a,
+                    correct_secs: parseGT(a.correct_gt),
+                  }))}
+                  rationale={rationale}
+                  ruleNumber={ruleRefs[0] ?? ''}
+                />
+              )}
+            </DialogContent>
+          </Dialog>
         </div>
       )}
 
