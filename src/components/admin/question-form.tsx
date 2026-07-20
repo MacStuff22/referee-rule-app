@@ -313,15 +313,19 @@ export default function QuestionForm({ question }: Props) {
   const [rationale, setRationale] = useState(question?.rationale ?? '')
 
   // Penalty table (optional, for MC/multi-select)
-  type PenaltyRow = { team: 'A' | 'B'; player: string; penalty: string; duration: string; time_called: string }
-  const [penaltyRows, setPenaltyRows] = useState<PenaltyRow[]>(
-    (question?.penalty_table as PenaltyRow[] | undefined) ?? []
-  )
-  function emptyPenaltyRow(): PenaltyRow {
-    return { team: 'A', player: '', penalty: '', duration: '', time_called: '' }
+  type PenaltyEntry = { player: string; penalties: string }
+  const existingTable = question?.penalty_table as { teamA?: PenaltyEntry[]; teamB?: PenaltyEntry[] } | undefined
+  const [penaltyA, setPenaltyA] = useState<PenaltyEntry[]>(existingTable?.teamA ?? [])
+  const [penaltyB, setPenaltyB] = useState<PenaltyEntry[]>(existingTable?.teamB ?? [])
+  const hasPenaltyTable = penaltyA.length > 0 || penaltyB.length > 0
+  function emptyEntry(): PenaltyEntry { return { player: '', penalties: '' } }
+  function updateEntry(team: 'A' | 'B', i: number, field: keyof PenaltyEntry, value: string) {
+    const set = team === 'A' ? setPenaltyA : setPenaltyB
+    set((prev) => { const n = [...prev]; n[i] = { ...n[i], [field]: value }; return n })
   }
-  function updatePenaltyRow(i: number, field: keyof PenaltyRow, value: string) {
-    setPenaltyRows((prev) => { const n = [...prev]; n[i] = { ...n[i], [field]: value }; return n })
+  function removeEntry(team: 'A' | 'B', i: number) {
+    const set = team === 'A' ? setPenaltyA : setPenaltyB
+    set((prev) => prev.filter((_, j) => j !== i))
   }
 
   // Compound sub-questions
@@ -602,7 +606,10 @@ export default function QuestionForm({ question }: Props) {
         correct_answers: correctAnswers,
         rationale: rationale.trim(),
         sub_questions: [],
-        penalty_table: penaltyRows.filter((r) => r.player.trim() || r.penalty.trim()),
+        penalty_table: {
+          teamA: penaltyA.filter((e) => e.player.trim() || e.penalties.trim()),
+          teamB: penaltyB.filter((e) => e.player.trim() || e.penalties.trim()),
+        },
         rule_number: filledRefs[0] ?? '',
         rule_references: filledRefs,
         handbook_section: handbookSection,
@@ -722,11 +729,11 @@ export default function QuestionForm({ question }: Props) {
           {/* Penalty table (optional) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label>Penalty Table <span className="text-gray-400 font-normal">(optional — for on-ice strength scenarios)</span></Label>
-              {penaltyRows.length === 0 && (
+              <Label>Penalty Table <span className="text-gray-400 font-normal">(optional)</span></Label>
+              {!hasPenaltyTable && (
                 <button
                   type="button"
-                  onClick={() => setPenaltyRows([emptyPenaltyRow()])}
+                  onClick={() => { setPenaltyA([emptyEntry()]); setPenaltyB([]) }}
                   className="text-xs text-blue-600 hover:text-blue-800 font-medium"
                 >
                   + Add table
@@ -734,78 +741,62 @@ export default function QuestionForm({ question }: Props) {
               )}
             </div>
 
-            {penaltyRows.length > 0 && (
+            {hasPenaltyTable && (
               <div className="border border-gray-200 rounded-lg overflow-hidden">
-                {/* Column headers */}
-                <div className="grid grid-cols-[60px_70px_1fr_80px_80px_32px] gap-x-2 px-3 py-2 bg-gray-50 border-b border-gray-200">
-                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Team</span>
-                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Player #</span>
-                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Penalty</span>
-                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Duration</span>
-                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Time Called</span>
-                  <span />
+                <div className="grid grid-cols-2 divide-x divide-gray-200">
+                  {(['A', 'B'] as const).map((team) => {
+                    const entries = team === 'A' ? penaltyA : penaltyB
+                    const setEntries = team === 'A' ? setPenaltyA : setPenaltyB
+                    return (
+                      <div key={team}>
+                        <div className={`px-3 py-2 text-[11px] font-bold uppercase tracking-widest border-b border-gray-200 ${team === 'A' ? 'text-blue-600' : 'text-red-600'} bg-gray-50`}>
+                          Team {team}
+                        </div>
+                        <div className="divide-y divide-gray-100">
+                          {entries.map((entry, i) => (
+                            <div key={i} className="flex items-center gap-1.5 px-2 py-1.5">
+                              <span className="text-sm font-mono text-gray-500 shrink-0">#</span>
+                              <input
+                                type="text"
+                                value={entry.player}
+                                onChange={(e) => updateEntry(team, i, 'player', e.target.value)}
+                                placeholder="45"
+                                className="w-10 text-sm border border-gray-300 rounded px-1.5 py-1 font-mono"
+                              />
+                              <input
+                                type="text"
+                                value={entry.penalties}
+                                onChange={(e) => updateEntry(team, i, 'penalties', e.target.value)}
+                                placeholder="2+2+5"
+                                className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => removeEntry(team, i)}
+                                className="text-gray-400 hover:text-red-500 text-lg leading-none shrink-0"
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="px-2 py-1.5 border-t border-gray-100">
+                          <button
+                            type="button"
+                            onClick={() => setEntries((prev) => [...prev, emptyEntry()])}
+                            className="text-xs text-blue-600 hover:text-blue-800"
+                          >
+                            + Add player
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-
-                {/* Rows */}
-                {penaltyRows.map((row, i) => (
-                  <div key={i} className="grid grid-cols-[60px_70px_1fr_80px_80px_32px] gap-x-2 px-3 py-2 border-b border-gray-100 last:border-0 items-center">
-                    <select
-                      value={row.team}
-                      onChange={(e) => updatePenaltyRow(i, 'team', e.target.value)}
-                      className="text-sm border border-gray-300 rounded px-1.5 py-1 bg-white"
-                    >
-                      <option value="A">Team A</option>
-                      <option value="B">Team B</option>
-                    </select>
-                    <input
-                      type="text"
-                      value={row.player}
-                      onChange={(e) => updatePenaltyRow(i, 'player', e.target.value)}
-                      placeholder="#"
-                      className="text-sm border border-gray-300 rounded px-2 py-1 w-full"
-                    />
-                    <input
-                      type="text"
-                      value={row.penalty}
-                      onChange={(e) => updatePenaltyRow(i, 'penalty', e.target.value)}
-                      placeholder="e.g. Double Minor – High Sticking"
-                      className="text-sm border border-gray-300 rounded px-2 py-1 w-full"
-                    />
-                    <input
-                      type="text"
-                      value={row.duration}
-                      onChange={(e) => updatePenaltyRow(i, 'duration', e.target.value)}
-                      placeholder="4:00"
-                      className="text-sm border border-gray-300 rounded px-2 py-1 font-mono w-full"
-                    />
-                    <input
-                      type="text"
-                      value={row.time_called}
-                      onChange={(e) => updatePenaltyRow(i, 'time_called', maskGameTime(e.target.value))}
-                      placeholder="m:ss"
-                      className="text-sm border border-gray-300 rounded px-2 py-1 font-mono w-full"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setPenaltyRows((prev) => prev.filter((_, j) => j !== i))}
-                      className="text-gray-400 hover:text-red-500 text-lg leading-none"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-
-                <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between">
+                <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 text-right">
                   <button
                     type="button"
-                    onClick={() => setPenaltyRows((prev) => [...prev, emptyPenaltyRow()])}
-                    className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                  >
-                    + Add row
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPenaltyRows([])}
+                    onClick={() => { setPenaltyA([]); setPenaltyB([]) }}
                     className="text-xs text-red-400 hover:text-red-600"
                   >
                     Remove table
