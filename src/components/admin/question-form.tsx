@@ -68,13 +68,16 @@ interface ScoreboardEvent {
   penalties: SinglePenalty[]  // one entry for single; multiple for combined (e.g. minor + major)
 }
 
+type WashOutType = 'goal' | 'coincidental' | null
+
 interface ScoreboardPlayerAnswer {
   team: 'A' | 'B'
   player: string
   correct_gt: string   // raw typed string, e.g. "1:34"; parsed to correct_secs on save
   correct_secs: number // derived on save from correct_gt
-  wash_out: boolean
-  already_expired: boolean  // penalty expired before the key event; not shown as answer option
+  wash_out: boolean           // true when wash_out_type is set
+  wash_out_type: WashOutType  // 'goal' | 'coincidental' | null
+  already_expired: boolean    // penalty expired before the key event; not shown as answer option
 }
 
 function parseGT(s: string): number {
@@ -117,7 +120,7 @@ function emptyEvent(): ScoreboardEvent {
 }
 
 function emptyPlayerAnswer(): ScoreboardPlayerAnswer {
-  return { team: 'A', player: '', correct_gt: '', correct_secs: 0, wash_out: false, already_expired: false }
+  return { team: 'A', player: '', correct_gt: '', correct_secs: 0, wash_out: false, wash_out_type: null, already_expired: false }
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -366,6 +369,7 @@ export default function QuestionForm({ question }: Props) {
         correct_gt: prev[idx]?.correct_gt ?? '',
         correct_secs: prev[idx]?.correct_secs ?? 0,
         wash_out: prev[idx]?.wash_out ?? false,
+        wash_out_type: prev[idx]?.wash_out_type ?? null,
         already_expired: prev[idx]?.already_expired ?? false,
       }))
     )
@@ -529,8 +533,8 @@ export default function QuestionForm({ question }: Props) {
       for (let i = 0; i < sbPlayerAnswers.length; i++) {
         const a = sbPlayerAnswers[i]
         if (!a.player.trim()) { setError(`Answer ${i + 1}: player number is required.`); return false }
-        if (!a.already_expired && !a.wash_out && !parseGT(a.correct_gt)) { setError(`Answer ${i + 1}: enter a correct time or mark as Wash Out.`); return false }
-        if (!a.already_expired && !a.wash_out && !gtSecondsValid(a.correct_gt)) { setError(`Answer ${i + 1}: seconds must be 0–59.`); return false }
+        if (!a.already_expired && !a.wash_out_type && !parseGT(a.correct_gt)) { setError(`Answer ${i + 1}: enter a correct time or mark as Washed Out.`); return false }
+        if (!a.already_expired && !a.wash_out_type && !gtSecondsValid(a.correct_gt)) { setError(`Answer ${i + 1}: seconds must be 0–59.`); return false }
       }
 
       payload = {
@@ -1184,34 +1188,45 @@ export default function QuestionForm({ question }: Props) {
                     <div className="space-y-0.5">
                       <label className="text-xs text-gray-400">Time remaining</label>
                       <Input
-                        value={ans.wash_out ? '' : ans.correct_gt}
+                        value={ans.wash_out_type ? '' : ans.correct_gt}
                         onChange={(e) => updateSbPlayerAnswer(i, 'correct_gt', maskGameTime(e.target.value))}
                         placeholder="e.g. 1:34"
-                        disabled={ans.wash_out}
-                        className={`w-24 font-mono text-sm disabled:opacity-40 ${!ans.wash_out && !gtSecondsValid(ans.correct_gt) ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                        disabled={!!ans.wash_out_type}
+                        className={`w-24 font-mono text-sm disabled:opacity-40 ${!ans.wash_out_type && !gtSecondsValid(ans.correct_gt) ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
                       />
-                      {!ans.wash_out && !gtSecondsValid(ans.correct_gt) && (
+                      {!ans.wash_out_type && !gtSecondsValid(ans.correct_gt) && (
                         <p className="text-red-500 text-xs">Seconds must be 0–59</p>
                       )}
                     </div>
                   )}
 
-                  {/* Wash Out toggle — hidden when already_expired */}
+                  {/* Wash Out type buttons — hidden when already_expired */}
                   {!ans.already_expired && (
-                    <button
-                      onClick={() => {
-                        const next = !ans.wash_out
-                        updateSbPlayerAnswer(i, 'wash_out', next)
-                        if (next) updateSbPlayerAnswer(i, 'correct_secs', 0)
-                      }}
-                      className={`h-8 px-3 rounded-md border text-xs font-medium transition-all ${
-                        ans.wash_out
-                          ? 'border-amber-500 bg-amber-50 text-amber-700'
-                          : 'border-gray-200 text-gray-500 hover:border-gray-300'
-                      }`}
-                    >
-                      Wash Out
-                    </button>
+                    <div className="flex gap-1.5">
+                      {(['goal', 'coincidental'] as WashOutType[]).map((wtype) => {
+                        const label = wtype === 'goal' ? 'Washed Out by Goal' : 'Coincidental Penalty'
+                        const active = ans.wash_out_type === wtype
+                        return (
+                          <button
+                            key={wtype}
+                            type="button"
+                            onClick={() => {
+                              const next = active ? null : wtype
+                              updateSbPlayerAnswer(i, 'wash_out_type', next)
+                              updateSbPlayerAnswer(i, 'wash_out', next !== null)
+                              if (next !== null) updateSbPlayerAnswer(i, 'correct_secs', 0)
+                            }}
+                            className={`h-8 px-3 rounded-md border text-xs font-medium transition-all ${
+                              active
+                                ? 'border-amber-500 bg-amber-50 text-amber-700'
+                                : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        )
+                      })}
+                    </div>
                   )}
 
                   {/* Already Expired toggle */}
@@ -1221,6 +1236,7 @@ export default function QuestionForm({ question }: Props) {
                       updateSbPlayerAnswer(i, 'already_expired', next)
                       if (next) {
                         updateSbPlayerAnswer(i, 'wash_out', false)
+                        updateSbPlayerAnswer(i, 'wash_out_type', null)
                         updateSbPlayerAnswer(i, 'correct_secs', 0)
                       }
                     }}

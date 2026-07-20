@@ -737,7 +737,7 @@ export default function QuizSessionPage() {
                       )}
                       {sbSubmitted && !isCorrect && (
                         <span className="text-xs text-gray-500 shrink-0 font-mono">
-                          {ans.wash_out ? 'Wash Out' : sbFormatGT(ans.correct_secs)}
+                          {ans.wash_out_type === 'goal' ? 'Washed Out by Goal' : ans.wash_out_type === 'coincidental' ? 'Coincidental Penalty' : ans.wash_out ? 'Wash Out' : sbFormatGT(ans.correct_secs)}
                         </span>
                       )}
                     </div>
