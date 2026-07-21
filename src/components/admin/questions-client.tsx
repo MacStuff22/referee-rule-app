@@ -5,24 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { LinkButton } from '@/components/ui/link-button'
+import { HANDBOOK_SECTIONS } from '@/lib/constants'
 import type { Question } from '@/types'
 
 type SortKey = 'status' | 'situation_id' | 'rule' | 'category' | 'section' | 'created'
 type SortDir = 'asc' | 'desc'
 
-const SECTION_OPTIONS = [
-  'Section 1 – Playing Area',
-  'Section 2 – Teams',
-  'Section 3 – Equipment',
-  'Section 4 – Types of Penalties',
-  'Section 5 – Officials',
-  'Section 6 – Physical Infractions',
-  'Section 7 – Restraining Infractions',
-  'Section 8 – Stick Infractions',
-  'Section 9 – Other Infractions',
-  'Section 10 – Game Flow',
-  'Miscellaneous',
-]
+const SECTION_OPTIONS = HANDBOOK_SECTIONS
 
 function parseSituationId(id: string): { num: number; letters: string } {
   const match = id.match(/^(\d+)([A-Z]*)$/i)

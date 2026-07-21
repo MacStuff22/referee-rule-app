@@ -5,6 +5,9 @@ import { redirect } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LinkButton } from '@/components/ui/link-button'
+import { decodeCompoundAnswer, decodeScoreboardAnswer } from '@/lib/quiz/answers'
+import { parseScoreboardConfig } from '@/types/scoreboard'
+import { formatGT } from '@/lib/scoreboard'
 
 interface Props {
   params: Promise<{ sessionId: string }>
@@ -47,17 +50,11 @@ export default async function ResultsPage({ params }: Props) {
         {(answers as any[])?.map((a, i) => {
           const q = a.questions
           const isCompound = q?.question_type === 'compound'
+          const isScoreboard = q?.question_type === 'scoreboard'
 
           if (isCompound) {
             const subQs: any[] = q?.sub_questions ?? []
-            // Decode -1-separated flat array back into per-sub-question answer arrays
-            const rawAnswers: number[] = a.selected_answers ?? []
-            const subAnswers: number[][] = rawAnswers
-              .reduce<number[][]>((groups, n) => {
-                if (n === -1) groups.push([])
-                else groups[groups.length - 1].push(n)
-                return groups
-              }, [[]])
+            const subAnswers: number[][] = decodeCompoundAnswer(a.selected_answers)
             const allPartsCorrect = subQs.every((sq: any, idx: number) => {
               const userAnswers = subAnswers[idx] ?? []
               const sorted = (arr: number[]) => [...arr].sort().join(',')
@@ -101,6 +98,60 @@ export default async function ResultsPage({ params }: Props) {
                       </div>
                     )
                   })}
+                  <p className="text-xs text-gray-400">Rule {q?.rule_number} · {q?.category}</p>
+                </CardContent>
+              </Card>
+            )
+          }
+
+          if (isScoreboard) {
+            const config = parseScoreboardConfig(q?.sub_questions?.[0])
+            const activePlayers = config?.player_answers.filter((p) => !p.already_expired) ?? []
+            const entries = decodeScoreboardAnswer(a.selected_answers)
+            const isCoincidental = config?.situation_type === 'coincidental'
+
+            return (
+              <Card key={a.id} className={a.is_correct ? 'border-green-200' : 'border-red-200'}>
+                <CardHeader className="pb-2 pt-4 px-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <CardTitle className="text-sm font-medium leading-relaxed">
+                      {i + 1}. {q?.text}
+                    </CardTitle>
+                    <Badge variant={a.is_correct ? 'default' : 'destructive'} className="shrink-0">
+                      {a.is_correct ? '✅' : '❌'}
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent className="px-4 pb-4 space-y-2">
+                  {activePlayers.map((p, idx) => {
+                    const entry = entries[idx]
+                    const partCorrect = entry
+                      ? (p.wash_out ? entry.washOut : (!entry.washOut && entry.secs === p.correct_secs))
+                      : false
+                    const correctLabel = p.wash_out
+                      ? (isCoincidental ? 'Coincidental Penalty' : 'Wash Out')
+                      : formatGT(p.correct_secs)
+                    const userLabel = !entry
+                      ? '—'
+                      : entry.washOut
+                        ? (isCoincidental ? 'Coincidental Penalty' : 'Wash Out')
+                        : entry.secs != null ? formatGT(entry.secs) : '—'
+                    return (
+                      <div
+                        key={idx}
+                        className={`rounded-lg p-2.5 text-sm flex items-center gap-2 flex-wrap ${partCorrect ? 'bg-green-50' : 'bg-red-50'}`}
+                      >
+                        <span className="font-medium text-gray-800">
+                          {partCorrect ? '✅' : '❌'} {p.team} #{p.player}
+                        </span>
+                        <span className="text-gray-600 font-mono">Correct: {correctLabel}</span>
+                        {!partCorrect && (
+                          <span className="text-gray-400 font-mono">you: {userLabel}</span>
+                        )}
+                      </div>
+                    )
+                  })}
+                  <p className="text-gray-500 text-sm"><span className="font-medium">📖 </span>{q?.rationale}</p>
                   <p className="text-xs text-gray-400">Rule {q?.rule_number} · {q?.category}</p>
                 </CardContent>
               </Card>

@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LinkButton } from '@/components/ui/link-button'
-import { Button } from '@/components/ui/button'
+import { getCategoryScores } from '@/lib/quiz/performance'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -18,28 +18,10 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single()
 
-  // Get performance per category
-  const { data: answers } = await supabase
-    .from('quiz_answers')
-    .select('is_correct, questions(category)')
-    .eq('session_id', supabase
-      .from('quiz_sessions')
-      .select('id')
-      .eq('user_id', user.id)
-    )
+  // Performance per category (shared with the adaptive quiz builder)
+  const categoryScores = await getCategoryScores(supabase, user.id)
 
-  // Summarise by category
-  const categoryMap: Record<string, { correct: number; total: number }> = {}
-  if (answers) {
-    for (const a of answers as any[]) {
-      const cat = a.questions?.category ?? 'Unknown'
-      if (!categoryMap[cat]) categoryMap[cat] = { correct: 0, total: 0 }
-      categoryMap[cat].total++
-      if (a.is_correct) categoryMap[cat].correct++
-    }
-  }
-
-  const categories = Object.entries(categoryMap)
+  const categories = Object.entries(categoryScores)
     .map(([cat, stats]) => ({
       category: cat,
       percentage: Math.round((stats.correct / stats.total) * 100),

@@ -1,66 +1,17 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { ScoreboardSimulator } from '@/components/quiz/scoreboard-simulator'
+import { encodeCompoundAnswer, type ScoreboardAnswerEntry } from '@/lib/quiz/answers'
+import { parseScoreboardConfig } from '@/types/scoreboard'
 import type { Question, QuizSession } from '@/types'
 
 type AnswerState = 'unanswered' | 'correct' | 'incorrect'
-type SbPhase = 'ready' | 'fast' | 'real' | 'overlay' | 'question'
-
-// ─── Scoreboard helpers ──────────────────────────────────────────────────────
-
-function sbFormatGT(secs: number): string {
-  const rounded = Math.max(0, Math.round(secs))
-  const m = Math.floor(rounded / 60)
-  const s = rounded % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
-
-const SB_PENALTY_SECS: Record<string, number> = {
-  minor: 120, double_minor: 240, major: 300, match: 300,
-}
-
-function sbEventTotalSecs(evt: any): number {
-  return (evt.penalties ?? []).reduce((sum: number, p: any) => sum + (SB_PENALTY_SECS[p.penalty_type] ?? 120), 0)
-}
-
-function sbPenaltyLabel(evt: any): string {
-  if (!evt.penalties?.length) return ''
-  return evt.penalties.map((p: any) => {
-    const type = p.penalty_type === 'double_minor' ? 'Double Minor'
-      : p.penalty_type === 'major' ? 'Major'
-      : p.penalty_type === 'match' ? 'Match'
-      : 'Minor'
-    return p.infraction ? `${type} (${p.infraction})` : type
-  }).join(' + ')
-}
-
-function parseGTInput(str: string): number | null {
-  const m = str.trim().match(/^(\d+):(\d{2})$/)
-  if (!m) return null
-  return parseInt(m[1]) * 60 + parseInt(m[2])
-}
-
-// Smart game-time mask: digits only, colon auto-inserted, 20:00 max, 59s max
-function maskGameTime(raw: string): string {
-  const d = raw.replace(/\D/g, '').slice(0, 4)
-  if (!d) return ''
-  let result: string
-  if (d.length === 1) result = `0:0${d}`
-  else if (d.length === 2) result = `0:${d}`
-  else if (d.length === 3) result = `${d[0]}:${d.slice(1)}`
-  else {
-    const mins = parseInt(d.slice(0, 2), 10)
-    result = `${mins}:${d.slice(2)}`
-  }
-  const secs = parseGTInput(result)
-  if (secs !== null && secs > 1200) return '20:00'
-  return result
-}
 
 const CLOCK_ENTRY = /^(.+?)\s*[–—]\s*(\d+:\d{2}|washed\s*out)$/i
 
@@ -106,23 +57,6 @@ export default function QuizSessionPage() {
   const [compoundSubCorrect, setCompoundSubCorrect] = useState<boolean[]>([])
   const [subShuffledOrders, setSubShuffledOrders] = useState<number[][]>([])
 
-  // Scoreboard question state
-  const [sbPhase, setSbPhase] = useState<SbPhase>('ready')
-  const [sbClockGT, setSbClockGT] = useState(0)
-  const [sbOverlay, setSbOverlay] = useState<{ title: string; sub: string | null; isGoal: boolean; combined?: { teamA: { player: string; label: string }[]; teamB: { player: string; label: string }[] } } | null>(null)
-  const [sbLog, setSbLog] = useState<{ gt: number; text: string; isGoal: boolean }[]>([])
-  const [sbScoreA, setSbScoreA] = useState(0)
-  const [sbScoreB, setSbScoreB] = useState(0)
-  const [sbPlayerCorrect, setSbPlayerCorrect] = useState<boolean[]>([])
-  const [sbInputs, setSbInputs] = useState<string[]>([])
-  const [sbWoState, setSbWoState] = useState<boolean[]>([])
-  const [sbSubmitted, setSbSubmitted] = useState(false)
-  const sbTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const sbGTRef = useRef(0)
-  const sbEvtIdxRef = useRef(0)
-  const sbGroupSizeRef = useRef(1)
-  const sbCfgRef = useRef<any>(null)
-
   useEffect(() => {
     loadCurrentQuestion()
   }, [sessionId])
@@ -145,21 +79,6 @@ export default function QuizSessionPage() {
     setCompoundSubAnswers([])
     setCompoundSubCorrect([])
     setSubShuffledOrders([])
-    setSbPhase('ready')
-    setSbClockGT(0)
-    setSbOverlay(null)
-    setSbLog([])
-    setSbScoreA(0)
-    setSbScoreB(0)
-    setSbPlayerCorrect([])
-    setSbInputs([])
-    setSbWoState([])
-    setSbSubmitted(false)
-    sbGTRef.current = 0
-    sbEvtIdxRef.current = 0
-    sbGroupSizeRef.current = 1
-    sbCfgRef.current = null
-    if (sbTimerRef.current) { clearInterval(sbTimerRef.current); sbTimerRef.current = null }
 
     const { data: sess } = await supabase
       .from('quiz_sessions')
@@ -180,137 +99,17 @@ export default function QuizSessionPage() {
     const { data: q } = await supabase.from('questions').select('*').eq('id', qId).single()
     setQuestion(q)
 
+    // Scoreboard questions manage their own state inside <ScoreboardSimulator>
+    // (remounted per question via key), so no per-question setup is needed here.
     if (q) {
       if (q.question_type === 'compound') {
         setSubShuffledOrders((q.sub_questions ?? []).map((sq: any) => shuffleIndices(sq.options.length)))
-      } else if (q.question_type === 'scoreboard') {
-        const cfg = q.sub_questions?.[0] as any
-        const active = (cfg?.player_answers ?? []).filter((a: any) => !a.already_expired)
-        sbCfgRef.current = cfg
-        sbGTRef.current = cfg?.start_gt ?? 0
-        setSbClockGT(cfg?.start_gt ?? 0)
-        setSbInputs(active.map(() => ''))
-        setSbWoState(active.map(() => false))
-        setSbPhase('ready')
-      } else {
+      } else if (q.question_type !== 'scoreboard') {
         setShuffledOrder(shuffleIndices(q.options.length))
       }
     }
 
     setLoading(false)
-  }
-
-  // ─── Scoreboard simulation ──────────────────────────────────────────────────
-
-  function fireSbEvent() {
-    const events = sbCfgRef.current?.events ?? []
-    const start = sbEvtIdxRef.current
-    if (start >= events.length) return
-    const gt = events[start].gt
-    const group: any[] = []
-    for (let i = start; i < events.length && events[i].gt === gt; i++) group.push(events[i])
-    sbGroupSizeRef.current = group.length
-
-    sbGTRef.current = gt
-    setSbClockGT(gt)
-
-    setSbLog((prev) => [
-      ...prev,
-      ...group.map((e: any) => ({
-        gt: e.gt,
-        text: e.type === 'goal' ? `GOAL — Team ${e.team}` : `Team ${e.team} #${e.player} — ${sbPenaltyLabel(e)}`,
-        isGoal: e.type === 'goal',
-      })),
-    ])
-
-    const goalInGroup = group.find((e: any) => e.type === 'goal')
-    if (goalInGroup) {
-      if (goalInGroup.team === 'A') setSbScoreA((s) => s + 1)
-      else setSbScoreB((s) => s + 1)
-    }
-
-    const penA = group.filter((e: any) => e.type === 'penalty' && e.team === 'A')
-    const penB = group.filter((e: any) => e.type === 'penalty' && e.team === 'B')
-
-    if (penA.length > 0 && penB.length > 0) {
-      const title = goalInGroup ? 'Goal + Penalties' : 'Penalties'
-      setSbOverlay({
-        title,
-        sub: null,
-        isGoal: !!goalInGroup,
-        combined: {
-          teamA: penA.map((e: any) => ({ player: e.player, label: sbPenaltyLabel(e) })),
-          teamB: penB.map((e: any) => ({ player: e.player, label: sbPenaltyLabel(e) })),
-        },
-      })
-    } else if (goalInGroup) {
-      setSbOverlay({ title: `Goal — Team ${goalInGroup.team}`, sub: null, isGoal: true })
-    } else {
-      const evt = group[0]
-      const title = `Penalt${(evt.penalties?.length ?? 0) > 1 ? 'ies' : 'y'} — Team ${evt.team} #${evt.player}`
-      setSbOverlay({ title, sub: sbPenaltyLabel(evt), isGoal: false })
-    }
-
-    setSbPhase('overlay')
-  }
-
-  function startSbReal() {
-    setSbPhase('real')
-    sbTimerRef.current = setInterval(() => {
-      const events = sbCfgRef.current?.events ?? []
-      const nextEvt = events[sbEvtIdxRef.current]
-      if (!nextEvt) { clearInterval(sbTimerRef.current!); sbTimerRef.current = null; return }
-      const newGT = Math.round((sbGTRef.current - 0.1) * 10) / 10
-      if (newGT <= nextEvt.gt) {
-        clearInterval(sbTimerRef.current!); sbTimerRef.current = null
-        fireSbEvent()
-      } else {
-        sbGTRef.current = newGT
-        setSbClockGT(newGT)
-      }
-    }, 100)
-  }
-
-  function startSbFast() {
-    setSbPhase('fast')
-    sbTimerRef.current = setInterval(() => {
-      const events = sbCfgRef.current?.events ?? []
-      const nextEvt = events[sbEvtIdxRef.current]
-      if (!nextEvt) { clearInterval(sbTimerRef.current!); sbTimerRef.current = null; return }
-      const gt = sbGTRef.current
-      const until = gt - nextEvt.gt
-      if (until <= 3) {
-        clearInterval(sbTimerRef.current!); sbTimerRef.current = null
-        startSbReal()
-        return
-      }
-      if (until <= 0) {
-        clearInterval(sbTimerRef.current!); sbTimerRef.current = null
-        fireSbEvent()
-        return
-      }
-      sbGTRef.current = gt - 1
-      setSbClockGT(gt - 1)
-    }, 40)
-  }
-
-  function onSbContinue() {
-    setSbOverlay(null)
-    sbEvtIdxRef.current += sbGroupSizeRef.current
-    sbGroupSizeRef.current = 1
-    const events = sbCfgRef.current?.events ?? []
-    if (sbEvtIdxRef.current >= events.length) {
-      setSbPhase('question')
-    } else {
-      startSbFast()
-    }
-  }
-
-  function toggleSbWo(i: number) {
-    if (sbSubmitted) return
-    const turningOn = !sbWoState[i]
-    setSbWoState((prev) => { const n = [...prev]; n[i] = turningOn; return n })
-    if (turningOn) setSbInputs((prev) => { const n = [...prev]; n[i] = ''; return n })
   }
 
   function toggleOption(originalIdx: number) {
@@ -360,14 +159,10 @@ export default function QuizSessionPage() {
     const isLastSubQ = compoundSubIndex === question.sub_questions.length - 1
     if (isLastSubQ) {
       const overallCorrect = newSubCorrect.every(Boolean)
-      const encoded = newSubAnswers.reduce<number[]>((acc, answers, i) => {
-        if (i > 0) acc.push(-1)
-        return acc.concat(answers)
-      }, [])
       await supabase.from('quiz_answers').insert({
         session_id: session.id,
         question_id: question.id,
-        selected_answers: encoded,
+        selected_answers: encodeCompoundAnswer(newSubAnswers),
         is_correct: overallCorrect,
       })
     }
@@ -379,31 +174,15 @@ export default function QuizSessionPage() {
     setAnswerState('unanswered')
   }
 
-  // ─── Scoreboard question submit ─────────────────────────────────────────────
+  // ─── Scoreboard question submit (invoked by ScoreboardSimulator) ─────────────
 
-  async function submitScoreboardAnswer() {
+  async function saveScoreboardAnswer(result: { isCorrect: boolean; entries: ScoreboardAnswerEntry[] }) {
     if (!question || !session) return
-    const cfg = question.sub_questions?.[0] as any
-    const active = (cfg?.player_answers ?? []).filter((a: any) => !a.already_expired)
-    const results = active.map((a: any, i: number) => {
-      if (a.wash_out) return sbWoState[i]
-      if (sbWoState[i]) return false
-      const inputSecs = parseGTInput(sbInputs[i])
-      return inputSecs !== null && inputSecs === a.correct_secs
-    })
-    const isCorrect = results.every(Boolean)
-    setSbPlayerCorrect(results)
-    setSbSubmitted(true)
-    setAnswerState(isCorrect ? 'correct' : 'incorrect')
-    const encoded = active.map((_: any, i: number) => {
-      if (sbWoState[i]) return -999
-      return parseGTInput(sbInputs[i]) ?? -1
-    })
     await supabase.from('quiz_answers').insert({
       session_id: session.id,
       question_id: question.id,
-      selected_answers: encoded,
-      is_correct: isCorrect,
+      selected_answers: result.entries,
+      is_correct: result.isCorrect,
     })
   }
 
@@ -559,56 +338,22 @@ export default function QuizSessionPage() {
   // ─── Scoreboard question render ──────────────────────────────────────────────
 
   if (question.question_type === 'scoreboard') {
-    const cfg = question.sub_questions?.[0] as any
-    if (!cfg) return null
-    const { period, events = [], player_answers = [], situation_type = 'expiration' } = cfg
-    const isCoincidental = situation_type === 'coincidental'
-    const active = (player_answers as any[]).filter((a: any) => !a.already_expired)
-    const goalEvt = (events as any[]).find((e: any) => e.type === 'goal')
-    const allFilled = active.every((_: any, i: number) => sbWoState[i] || parseGTInput(sbInputs[i]) !== null)
-
-    // Penalty slots: events that have been called (clock at or below event's gt)
-    const finalGT = (events as any[]).length > 0 ? Math.min(...(events as any[]).map((e: any) => e.gt)) : -1
-    const firedPenalties = (events as any[]).filter((e: any) => {
-      if (e.type !== 'penalty') return false
-      if (sbClockGT > e.gt) return false
-      if (isCoincidental && e.gt === finalGT) return false
-      return true
-    })
-    const penA = firedPenalties.filter((e: any) => e.team === 'A')
-    const penB = firedPenalties.filter((e: any) => e.team === 'B')
-
-    function getPenRemaining(evt: any): number {
-      return Math.max(0, sbEventTotalSecs(evt) - (evt.gt - sbClockGT))
-    }
-
-    function renderSlot(pen: any | null) {
-      if (!pen) {
-        return (
-          <div className="flex items-center justify-between min-h-[1.65rem] mb-0.5 px-1.5 py-0.5 rounded-md">
-            <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.18)' }}>—</span>
-            <span className="text-[12px] tabular-nums" style={{ color: 'rgba(255,255,255,0.18)' }}>—</span>
-          </div>
-        )
-      }
+    const config = parseScoreboardConfig(question.sub_questions?.[0])
+    if (!config) {
       return (
-        <div className="flex items-center justify-between min-h-[1.65rem] mb-0.5 px-1.5 py-0.5 rounded-md">
-          <span className="text-[11px] truncate mr-2" style={{ color: 'rgba(255,255,255,0.78)' }}>
-            {pen.team} #{pen.player}
-            <span className="ml-1 text-[10px]" style={{ color: 'rgba(255,255,255,0.35)' }}>
-              {sbPenaltyLabel(pen)}
-            </span>
-          </span>
-          <span className="text-[12px] tabular-nums font-medium text-amber-400 shrink-0">
-            {sbFormatGT(getPenRemaining(pen))}
-          </span>
+        <div className="max-w-2xl mx-auto space-y-4">
+          {progressBar}
+          <Card>
+            <CardContent className="pt-6 text-sm text-red-600">
+              This scoreboard question is misconfigured and can’t be displayed.
+            </CardContent>
+          </Card>
+          <Button onClick={nextQuestion} className="w-full" size="lg">
+            {isLastQuestion ? 'See Results' : 'Skip →'}
+          </Button>
         </div>
       )
     }
-
-    const promptText = goalEvt
-      ? `Team ${goalEvt.team} scores. Communicate the penalty clock times to the timekeeper.`
-      : 'Communicate the penalty clock times to the timekeeper.'
 
     return (
       <div className="max-w-2xl mx-auto space-y-4">
@@ -620,216 +365,20 @@ export default function QuizSessionPage() {
           <p className="text-sm text-blue-900 leading-relaxed">{question.text}</p>
         </div>
 
-        {/* ── NHL-style scoreboard ── */}
-        <div className="rounded-[14px] overflow-hidden relative" style={{ background: '#0c1420' }}>
-
-          {/* Event overlay */}
-          {sbOverlay && (
-            <div
-              className="absolute inset-0 rounded-[14px] z-20 flex flex-col items-center justify-center px-6 py-5"
-              style={{
-                background: sbOverlay.isGoal ? 'rgba(4,14,8,0.88)' : 'rgba(8,16,28,0.85)',
-                backdropFilter: 'blur(3px)',
-              }}
-            >
-              <div className="text-3xl mb-1">{sbOverlay.isGoal ? '🚨' : '📋'}</div>
-              <div className={`text-sm font-medium text-center mb-3 ${sbOverlay.isGoal ? 'text-green-300' : 'text-amber-300'}`}>
-                {sbOverlay.title}
-              </div>
-              {sbOverlay.combined ? (
-                <div className="w-full grid grid-cols-2 gap-4 mb-4 px-2">
-                  <div>
-                    <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color: 'rgba(96,165,250,0.6)' }}>Team A</div>
-                    {sbOverlay.combined.teamA.map((p, i) => (
-                      <div key={i} className="mb-1">
-                        <span className="text-[12px] font-medium text-white">#{p.player}</span>
-                        <div className="text-[10px] leading-snug" style={{ color: 'rgba(255,255,255,0.45)' }}>{p.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div>
-                    <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color: 'rgba(248,113,113,0.6)' }}>Team B</div>
-                    {sbOverlay.combined.teamB.map((p, i) => (
-                      <div key={i} className="mb-1">
-                        <span className="text-[12px] font-medium text-white">#{p.player}</span>
-                        <div className="text-[10px] leading-snug" style={{ color: 'rgba(255,255,255,0.45)' }}>{p.label}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : sbOverlay.sub ? (
-                <div className="text-[11px] text-center mb-4 leading-relaxed whitespace-pre-line" style={{ color: 'rgba(255,255,255,0.5)' }}>
-                  {sbOverlay.sub}
-                </div>
-              ) : null}
-              <button
-                onClick={onSbContinue}
-                className="px-5 py-1.5 text-sm rounded-lg transition-colors"
-                style={{ border: '1px solid rgba(255,255,255,0.2)', background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.8)' }}
-              >
-                Continue →
-              </button>
-            </div>
-          )}
-
-          {/* Top: Period | Clock | (empty) */}
-          <div className="grid items-center px-4 py-2.5" style={{ gridTemplateColumns: '1fr auto 1fr' }}>
-            <div>
-              <div className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>Period</div>
-              <div className="text-[17px]" style={{ color: 'rgba(255,255,255,0.7)' }}>{period}</div>
-            </div>
-            <div className="text-center">
-              <div className="text-[9px] uppercase tracking-widest mb-0.5" style={{ color: 'rgba(255,255,255,0.3)' }}>Time Remaining</div>
-              <div
-                className="text-5xl font-light tracking-widest tabular-nums transition-all"
-                style={{
-                  color: sbPhase === 'fast' ? '#93c5fd' : 'white',
-                  opacity: sbPhase === 'fast' ? 0.45 : 1,
-                }}
-              >
-                {sbFormatGT(sbClockGT)}
-              </div>
-            </div>
-            <div />
-          </div>
-
-          {/* Score row */}
-          <div
-            className="grid items-center px-5 py-1.5"
-            style={{ gridTemplateColumns: '1fr auto 1fr', borderTop: '1px solid rgba(255,255,255,0.06)' }}
-          >
-            <div className="text-[12px] font-medium uppercase tracking-widest text-blue-400">Team A</div>
-            <div className="text-[1.4rem] font-light text-white tracking-widest tabular-nums text-center px-4">
-              {sbScoreA} <span style={{ color: 'rgba(255,255,255,0.25)' }}>–</span> {sbScoreB}
-            </div>
-            <div className="text-[12px] font-medium uppercase tracking-widest text-red-400 text-right">Team B</div>
-          </div>
-
-          {/* Penalty grid */}
-          <div className="grid grid-cols-2" style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-            <div className="px-3.5 py-2.5" style={{ borderRight: '1px solid rgba(255,255,255,0.06)' }}>
-              <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color: 'rgba(96,165,250,0.5)' }}>Team A</div>
-              {renderSlot(penA[0] ?? null)}
-              {renderSlot(penA[1] ?? null)}
-            </div>
-            <div className="px-3.5 py-2.5">
-              <div className="text-[9px] uppercase tracking-widest mb-1.5" style={{ color: 'rgba(248,113,113,0.5)' }}>Team B</div>
-              {renderSlot(penB[0] ?? null)}
-              {renderSlot(penB[1] ?? null)}
-            </div>
-          </div>
-        </div>
-
-        {/* Event log */}
-        <div className="rounded-xl border border-gray-100 bg-white px-3.5 py-3">
-          <div className="text-[10px] uppercase tracking-widest font-medium text-gray-400 mb-2">
-            Period {period} — Events
-          </div>
-          {sbLog.length === 0 ? (
-            <div className="text-[11px] text-gray-300">No events yet</div>
-          ) : (
-            <div className="space-y-1">
-              {sbLog.map((entry, i) => (
-                <div key={i} className="flex gap-2 items-baseline text-[12px]">
-                  <span className="tabular-nums text-[11px] text-gray-400 shrink-0 min-w-[28px]">{sbFormatGT(entry.gt)}</span>
-                  <span className={entry.isGoal ? 'text-green-700 font-medium' : 'text-gray-700'}>{entry.text}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Start button */}
-        {sbPhase === 'ready' && (
-          <Button onClick={startSbFast} className="w-full" size="lg">
-            ▶ Start Simulation
-          </Button>
-        )}
-
-        {/* Answer section — appears after last event is continued */}
-        {sbPhase === 'question' && (
-          <div className="space-y-3">
-            <Card>
-              <CardContent className="pt-4 pb-4 space-y-3">
-                <p className="text-sm font-medium text-gray-700">{promptText}</p>
-                {active.map((ans: any, i: number) => {
-                  const isCorrect = sbPlayerCorrect[i]
-                  return (
-                    <div
-                      key={i}
-                      className={`flex items-center gap-2.5 p-2.5 rounded-lg ${
-                        sbSubmitted ? (isCorrect ? 'bg-green-50' : 'bg-red-50') : 'bg-gray-50'
-                      }`}
-                    >
-                      <span className={`text-sm font-semibold shrink-0 w-14 ${ans.team === 'A' ? 'text-blue-700' : 'text-red-700'}`}>
-                        {ans.team} #{ans.player}
-                      </span>
-                      <input
-                        type="text"
-                        value={sbWoState[i] ? '' : sbInputs[i]}
-                        onChange={(e) => {
-                          if (sbSubmitted || sbWoState[i]) return
-                          const masked = maskGameTime(e.target.value)
-                          setSbInputs((prev) => { const n = [...prev]; n[i] = masked; return n })
-                        }}
-                        disabled={sbSubmitted || sbWoState[i]}
-                        placeholder="m:ss"
-                        className="flex-1 border border-gray-300 rounded-md px-2.5 py-1.5 text-sm font-mono tabular-nums bg-white focus:outline-none focus:border-slate-500 disabled:opacity-40 disabled:cursor-not-allowed"
-                      />
-                      <button
-                        onClick={() => toggleSbWo(i)}
-                        disabled={sbSubmitted}
-                        className={`px-3 py-1.5 text-xs rounded-md border transition-all shrink-0 ${
-                          sbWoState[i]
-                            ? 'border-blue-500 bg-blue-50 text-blue-700'
-                            : 'border-gray-300 bg-white text-gray-500 hover:border-gray-400'
-                        } disabled:opacity-40 disabled:cursor-not-allowed`}
-                      >
-                        {isCoincidental ? 'Coincidental Penalty' : 'Wash Out'}
-                      </button>
-                      {sbSubmitted && (
-                        <span className={`text-sm font-bold shrink-0 ${isCorrect ? 'text-green-600' : 'text-red-500'}`}>
-                          {isCorrect ? '✓' : '✗'}
-                        </span>
-                      )}
-                      {sbSubmitted && !isCorrect && (
-                        <span className="text-xs text-gray-500 shrink-0 font-mono">
-                          {ans.wash_out ? (isCoincidental ? 'Coincidental Penalty' : 'Wash Out') : sbFormatGT(ans.correct_secs)}
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </CardContent>
-            </Card>
-
-            {sbSubmitted && (
-              <Card className={answerState === 'correct' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
-                <CardContent className="pt-4 pb-4 space-y-2">
-                  <p className={`font-semibold ${answerState === 'correct' ? 'text-green-800' : 'text-red-800'}`}>
-                    {answerState === 'correct' ? '✅ Correct!' : '❌ Not quite.'}
-                  </p>
-                  <p className="text-sm text-gray-700">
-                    <span className="font-medium">📖 Rationale: </span>{question.rationale}
-                  </p>
-                  <p className="text-sm text-gray-500">
-                    <span className="font-medium">📋 Rule {question.rule_number}</span>
-                  </p>
-                </CardContent>
-              </Card>
-            )}
-
-            {!sbSubmitted ? (
-              <Button onClick={submitScoreboardAnswer} disabled={!allFilled} className="w-full" size="lg">
-                Submit Answer
-              </Button>
-            ) : (
-              <Button onClick={nextQuestion} className="w-full" size="lg">
-                {isLastQuestion ? 'See Results' : 'Next Question →'}
-              </Button>
-            )}
-          </div>
-        )}
+        <ScoreboardSimulator
+          key={question.id}
+          period={config.period}
+          startGT={config.start_gt}
+          events={config.events}
+          playerAnswers={config.player_answers}
+          situationType={config.situation_type}
+          rationale={question.rationale}
+          ruleNumber={question.rule_number}
+          revealAnswer
+          onSubmit={saveScoreboardAnswer}
+          onNext={nextQuestion}
+          nextLabel={isLastQuestion ? 'See Results' : 'Next Question →'}
+        />
       </div>
     )
   }

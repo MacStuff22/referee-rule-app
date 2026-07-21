@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
+import { getCategoryScores } from '@/lib/quiz/performance'
 import type { SessionLength } from '@/types'
 
 const SESSION_COUNTS: Record<SessionLength, number> = {
@@ -26,31 +27,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No questions available' }, { status: 400 })
   }
 
-  // Get user's performance per category
-  const { data: sessions } = await supabase
-    .from('quiz_sessions')
-    .select('id')
-    .eq('user_id', user.id)
-
-  const sessionIds = sessions?.map((s) => s.id) ?? []
-
-  let categoryScores: Record<string, { correct: number; total: number }> = {}
-
-  if (sessionIds.length > 0) {
-    const { data: answers } = await supabase
-      .from('quiz_answers')
-      .select('is_correct, question_id, questions(category)')
-      .in('session_id', sessionIds)
-
-    if (answers) {
-      for (const a of answers as any[]) {
-        const cat = a.questions?.category ?? 'Unknown'
-        if (!categoryScores[cat]) categoryScores[cat] = { correct: 0, total: 0 }
-        categoryScores[cat].total++
-        if (a.is_correct) categoryScores[cat].correct++
-      }
-    }
-  }
+  // Get user's performance per category (shared with the dashboard)
+  const categoryScores = await getCategoryScores(supabase, user.id)
 
   // Assign weight per question: weaker categories get higher weight
   // New categories (never seen) get a medium weight of 0.5
