@@ -610,13 +610,13 @@ export default function QuestionForm({ question }: Props) {
                                 className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
                               />
                               <div className="relative w-24 shrink-0">
-                                <span className="absolute -top-2 -right-1 text-red-500 text-xs leading-none">*</span>
+                                <span className="absolute top-0.5 right-1.5 text-red-500 text-xs leading-none">*</span>
                                 <input
                                   type="text"
                                   value={entry.time ?? ''}
                                   onChange={(e) => updateEntry(team, i, 'time', maskGameTime(e.target.value))}
                                   placeholder="mm:ss"
-                                  className="w-full text-sm border border-gray-300 rounded px-2 py-1 font-mono placeholder:text-gray-400"
+                                  className="w-full text-sm border border-gray-300 rounded px-2 py-1 pr-4 font-mono placeholder:text-gray-400"
                                 />
                               </div>
                               <button
