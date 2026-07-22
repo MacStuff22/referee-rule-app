@@ -245,6 +245,10 @@ export default function QuizSessionPage() {
     const shuffleOrder = subShuffledOrders[compoundSubIndex] ?? subQ.options.map((_: any, i: number) => i)
     const isLastSubQ = compoundSubIndex === subQs.length - 1
 
+    const compoundPenaltyTable = (question as any).penalty_table as { teamA?: any[]; teamB?: any[] } | null
+    const compoundPenA: any[] = compoundPenaltyTable?.teamA ?? []
+    const compoundPenB: any[] = compoundPenaltyTable?.teamB ?? []
+
     return (
       <div className="max-w-2xl mx-auto space-y-4">
         {progressBar}
@@ -253,6 +257,39 @@ export default function QuizSessionPage() {
           <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Situation</p>
           <p className="text-sm text-blue-900 leading-relaxed">{question.text}</p>
         </div>
+
+        {(compoundPenA.length > 0 || compoundPenB.length > 0) && (
+          <div className="rounded-xl border border-slate-200 overflow-hidden">
+            <div className="grid grid-cols-2 divide-x divide-slate-200">
+              {(['A', 'B'] as const).map((team) => {
+                const entries = team === 'A' ? compoundPenA : compoundPenB
+                return (
+                  <div key={team}>
+                    <div className={`px-3 py-2 text-center text-[11px] font-bold uppercase tracking-widest border-b border-slate-200 bg-slate-800 ${team === 'A' ? 'text-blue-300' : 'text-red-300'}`}>
+                      Team {team}
+                    </div>
+                    <div className="divide-y divide-slate-100">
+                      {entries.map((e: any, i: number) => (
+                        <div key={i} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
+                          <span>
+                            <span className="font-bold text-slate-700">#{e.player}</span>
+                            <span className="text-slate-500 ml-2">{e.penalties}</span>
+                          </span>
+                          {e.time?.trim() && (
+                            <span className="text-slate-400 font-mono text-xs shrink-0">{e.time}</span>
+                          )}
+                        </div>
+                      ))}
+                      {entries.length === 0 && (
+                        <div className="px-3 py-2 text-sm text-slate-400 italic">—</div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="flex items-center gap-2">
           {subQs.map((_: any, i: number) => (
