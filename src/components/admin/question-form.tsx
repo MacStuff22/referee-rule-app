@@ -156,12 +156,12 @@ export default function QuestionForm({ question }: Props) {
   const [rationale, setRationale] = useState(question?.rationale ?? '')
 
   // Penalty table (optional, for MC/multi-select)
-  type PenaltyEntry = { player: string; penalties: string }
+  type PenaltyEntry = { player: string; penalties: string; time?: string }
   const existingTable = question?.penalty_table as { teamA?: PenaltyEntry[]; teamB?: PenaltyEntry[] } | undefined
   const [penaltyA, setPenaltyA] = useState<PenaltyEntry[]>(existingTable?.teamA ?? [])
   const [penaltyB, setPenaltyB] = useState<PenaltyEntry[]>(existingTable?.teamB ?? [])
   const hasPenaltyTable = penaltyA.length > 0 || penaltyB.length > 0
-  function emptyEntry(): PenaltyEntry { return { player: '', penalties: '' } }
+  function emptyEntry(): PenaltyEntry { return { player: '', penalties: '', time: '' } }
   function updateEntry(team: 'A' | 'B', i: number, field: keyof PenaltyEntry, value: string) {
     const set = team === 'A' ? setPenaltyA : setPenaltyB
     set((prev) => { const n = [...prev]; n[i] = { ...n[i], [field]: value }; return n })
@@ -609,6 +609,13 @@ export default function QuestionForm({ question }: Props) {
                                 placeholder="2+2+5"
                                 className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
                               />
+                              <input
+                                type="text"
+                                value={entry.time ?? ''}
+                                onChange={(e) => updateEntry(team, i, 'time', maskGameTime(e.target.value))}
+                                placeholder="Time of penalty*"
+                                className="w-24 text-sm border border-gray-300 rounded px-2 py-1 font-mono placeholder:text-gray-400 placeholder:font-sans placeholder:text-[11px]"
+                              />
                               <button
                                 type="button"
                                 onClick={() => removeEntry(team, i)}
@@ -632,11 +639,14 @@ export default function QuestionForm({ question }: Props) {
                     )
                   })}
                 </div>
-                <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 text-right">
+                <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-3">
+                  <span className="text-[11px] text-gray-400">
+                    * Optional - Does not appear for user if no text in field
+                  </span>
                   <button
                     type="button"
                     onClick={() => { setPenaltyA([]); setPenaltyB([]) }}
-                    className="text-xs text-red-400 hover:text-red-600"
+                    className="text-xs text-red-400 hover:text-red-600 shrink-0"
                   >
                     Remove table
                   </button>

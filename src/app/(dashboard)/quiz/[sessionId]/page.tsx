@@ -406,9 +406,14 @@ export default function QuizSessionPage() {
                   </div>
                   <div className="divide-y divide-slate-100">
                     {entries.map((e: any, i: number) => (
-                      <div key={i} className="px-3 py-2 text-sm">
-                        <span className="font-bold text-slate-700">#{e.player}</span>
-                        <span className="text-slate-500 ml-2">{e.penalties}</span>
+                      <div key={i} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
+                        <span>
+                          <span className="font-bold text-slate-700">#{e.player}</span>
+                          <span className="text-slate-500 ml-2">{e.penalties}</span>
+                        </span>
+                        {e.time?.trim() && (
+                          <span className="text-slate-400 font-mono text-xs shrink-0">{e.time}</span>
+                        )}
                       </div>
                     ))}
                     {entries.length === 0 && (

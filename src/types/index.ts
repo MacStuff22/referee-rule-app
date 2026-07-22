@@ -7,6 +7,7 @@ export type SessionLength = 'quick' | 'standard' | 'full'
 export interface PenaltyTableEntry {
   player: string   // e.g. "45"
   penalties: string // e.g. "2+2+5"
+  time?: string     // e.g. "1:34" — optional, hidden from users when blank
 }
 
 export interface PenaltyTable {
