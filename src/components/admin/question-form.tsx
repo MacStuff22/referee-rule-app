@@ -609,13 +609,16 @@ export default function QuestionForm({ question }: Props) {
                                 placeholder="2+2+5"
                                 className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
                               />
-                              <input
-                                type="text"
-                                value={entry.time ?? ''}
-                                onChange={(e) => updateEntry(team, i, 'time', maskGameTime(e.target.value))}
-                                placeholder="Time of penalty*"
-                                className="w-24 text-sm border border-gray-300 rounded px-2 py-1 font-mono placeholder:text-gray-400 placeholder:font-sans placeholder:text-[11px]"
-                              />
+                              <div className="relative w-24 shrink-0">
+                                <span className="absolute -top-2 -right-1 text-red-500 text-xs leading-none">*</span>
+                                <input
+                                  type="text"
+                                  value={entry.time ?? ''}
+                                  onChange={(e) => updateEntry(team, i, 'time', maskGameTime(e.target.value))}
+                                  placeholder="mm:ss"
+                                  className="w-full text-sm border border-gray-300 rounded px-2 py-1 font-mono placeholder:text-gray-400"
+                                />
+                              </div>
                               <button
                                 type="button"
                                 onClick={() => removeEntry(team, i)}
@@ -639,7 +642,7 @@ export default function QuestionForm({ question }: Props) {
                     )
                   })}
                 </div>
-                <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-end gap-3">
+                <div className="px-3 py-2 bg-gray-50 border-t border-gray-200 flex items-center justify-between gap-3">
                   <span className="text-[11px] text-gray-400">
                     * Optional - Does not appear for user if no text in field
                   </span>
