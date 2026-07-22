@@ -261,7 +261,7 @@ export default function QuizSessionPage() {
         {(compoundPenA.length > 0 || compoundPenB.length > 0) && (
           <div className="rounded-xl border border-slate-200 overflow-hidden">
             <div className="grid grid-cols-2 divide-x divide-slate-200">
-              {(['A', 'B'] as const).map((team) => {
+              {(['A', 'B'] as const).filter((team) => (team === 'A' ? compoundPenA : compoundPenB).length > 0).map((team) => {
                 const entries = team === 'A' ? compoundPenA : compoundPenB
                 return (
                   <div key={team}>
@@ -280,9 +280,6 @@ export default function QuizSessionPage() {
                           )}
                         </div>
                       ))}
-                      {entries.length === 0 && (
-                        <div className="px-3 py-2 text-sm text-slate-400 italic">—</div>
-                      )}
                     </div>
                   </div>
                 )
@@ -434,7 +431,7 @@ export default function QuizSessionPage() {
       {(penA.length > 0 || penB.length > 0) && (
         <div className="rounded-xl border border-slate-200 overflow-hidden">
           <div className="grid grid-cols-2 divide-x divide-slate-200">
-            {(['A', 'B'] as const).map((team) => {
+            {(['A', 'B'] as const).filter((team) => (team === 'A' ? penA : penB).length > 0).map((team) => {
               const entries = team === 'A' ? penA : penB
               return (
                 <div key={team}>
@@ -453,9 +450,6 @@ export default function QuizSessionPage() {
                         )}
                       </div>
                     ))}
-                    {entries.length === 0 && (
-                      <div className="px-3 py-2 text-sm text-slate-400 italic">—</div>
-                    )}
                   </div>
                 </div>
               )
