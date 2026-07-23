@@ -9,9 +9,10 @@ import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScoreboardPreview } from '@/components/admin/scoreboard-preview'
+import { PenaltyTableChipEditor } from '@/components/admin/penalty-table-chip-editor'
 import { HANDBOOK_SECTIONS, CATEGORIES } from '@/lib/constants'
 import { PENALTY_DISPLAY, parseGameTime, formatGT, gtSecondsValid, maskGameTime } from '@/lib/scoreboard'
-import { PENALTY_TABLE_MARKER, hasPenaltyTableMarker, stripPenaltyTableMarker } from '@/lib/penaltyTable'
+import { PENALTY_TABLE_MARKER } from '@/lib/penaltyTable'
 import type { SinglePenalty } from '@/types/scoreboard'
 import type { Question, SubQuestion } from '@/types'
 
@@ -144,25 +145,17 @@ export default function QuestionForm({ question }: Props) {
 
   // Shared metadata
   const [text, setText] = useState(question?.text ?? '')
-  const situationTextRef = useRef<HTMLTextAreaElement | null>(null)
 
-  function insertPenaltyTableMarkerAtCursor() {
-    const el = situationTextRef.current
-    const cursorPos = el ? el.selectionStart : text.length
-    const withoutMarker = text.split(PENALTY_TABLE_MARKER).join('')
-    const removedBeforeCursor = text.slice(0, cursorPos).split(PENALTY_TABLE_MARKER).length - 1
-    const adjustedPos = Math.max(0, cursorPos - removedBeforeCursor * PENALTY_TABLE_MARKER.length)
-    const next = withoutMarker.slice(0, adjustedPos) + PENALTY_TABLE_MARKER + withoutMarker.slice(adjustedPos)
-    setText(next)
-    requestAnimationFrame(() => {
-      const caret = adjustedPos + PENALTY_TABLE_MARKER.length
-      el?.focus()
-      el?.setSelectionRange(caret, caret)
+  /** Appends the penalty table marker to the end of the current text (default: below existing text). */
+  function appendPenaltyTableMarker() {
+    setText((prev) => {
+      const withoutMarker = prev.split(PENALTY_TABLE_MARKER).join('').trimEnd()
+      return withoutMarker ? `${withoutMarker} ${PENALTY_TABLE_MARKER}` : PENALTY_TABLE_MARKER
     })
   }
 
   function removePenaltyTableMarker() {
-    setText(text.split(PENALTY_TABLE_MARKER).join(''))
+    setText((prev) => prev.split(PENALTY_TABLE_MARKER).join(''))
   }
   const [ruleRefs, setRuleRefs] = useState<string[]>(
     question?.rule_references?.length ? question.rule_references : (question?.rule_number ? [question.rule_number] : [''])
@@ -579,24 +572,36 @@ export default function QuestionForm({ question }: Props) {
       {/* Situation / Question text */}
       <div className="space-y-2">
         <Label>Situation / Question</Label>
-        <AutoResizeTextarea
-          ref={situationTextRef}
-          minHeight={96}
-          value={text}
-          onChange={setText}
-          placeholder={
-            mode === 'compound'
-              ? 'Describe the on-ice situation that all sub-questions below will refer to…'
-              : mode === 'scoreboard'
-              ? 'Describe the situation — this appears above the penalty clock…'
-              : 'Describe the on-ice situation or question…'
-          }
-        />
+        {(mode === 'multiple_choice' || mode === 'multi_select' || mode === 'compound') && hasPenaltyTable ? (
+          <PenaltyTableChipEditor
+            minHeight={96}
+            value={text}
+            onChange={setText}
+            placeholder={
+              mode === 'compound'
+                ? 'Describe the on-ice situation that all sub-questions below will refer to…'
+                : 'Describe the on-ice situation or question…'
+            }
+          />
+        ) : (
+          <AutoResizeTextarea
+            minHeight={96}
+            value={text}
+            onChange={setText}
+            placeholder={
+              mode === 'compound'
+                ? 'Describe the on-ice situation that all sub-questions below will refer to…'
+                : mode === 'scoreboard'
+                ? 'Describe the situation — this appears above the penalty clock…'
+                : 'Describe the on-ice situation or question…'
+            }
+          />
+        )}
         {(mode === 'multiple_choice' || mode === 'multi_select' || mode === 'compound') && !hasPenaltyTable && (
           <div className="text-right">
             <button
               type="button"
-              onClick={() => { setPenaltyA([emptyEntry()]); setPenaltyB([]) }}
+              onClick={() => { setPenaltyA([emptyEntry()]); setPenaltyB([]); appendPenaltyTableMarker() }}
               className="text-xs text-blue-600 hover:text-blue-800 font-medium"
             >
               + Add Penalty Table
@@ -604,30 +609,10 @@ export default function QuestionForm({ question }: Props) {
           </div>
         )}
         {(mode === 'multiple_choice' || mode === 'multi_select' || mode === 'compound') && hasPenaltyTable && (
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <p className="text-[11px] text-gray-400">
-              Click in the text above to place your cursor, then insert the table there. It shows as{' '}
-              <span className="font-mono text-gray-500">{PENALTY_TABLE_MARKER}</span> in the text.
-            </p>
-            <div className="flex items-center gap-3 shrink-0">
-              {hasPenaltyTableMarker(text) && (
-                <button
-                  type="button"
-                  onClick={removePenaltyTableMarker}
-                  className="text-xs text-gray-400 hover:text-red-500 font-medium"
-                >
-                  Remove placement marker
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={insertPenaltyTableMarkerAtCursor}
-                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-              >
-                {hasPenaltyTableMarker(text) ? 'Move Penalty Table Here' : 'Insert Penalty Table Here'}
-              </button>
-            </div>
-          </div>
+          <p className="text-[11px] text-gray-400">
+            The blue <span className="text-blue-600 font-semibold">Penalty Table</span> chip shows where the table
+            will appear. Click it once to pick it up, then click anywhere in the text to drop it there.
+          </p>
         )}
       </div>
 
