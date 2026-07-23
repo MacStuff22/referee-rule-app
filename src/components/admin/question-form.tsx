@@ -587,7 +587,7 @@ export default function QuestionForm({ question }: Props) {
                     const entries = team === 'A' ? penaltyA : penaltyB
                     const setEntries = team === 'A' ? setPenaltyA : setPenaltyB
                     return (
-                      <div key={team}>
+                      <div key={team} className="min-w-0">
                         <div className={`px-3 py-2 text-[11px] font-bold uppercase tracking-widest border-b border-gray-200 ${team === 'A' ? 'text-blue-600' : 'text-red-600'} bg-gray-50`}>
                           Team {team}
                         </div>
@@ -607,7 +607,7 @@ export default function QuestionForm({ question }: Props) {
                                 value={entry.penalties}
                                 onChange={(e) => updateEntry(team, i, 'penalties', e.target.value)}
                                 placeholder="2+2+5"
-                                className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+                                className="flex-1 min-w-0 text-sm border border-gray-300 rounded px-2 py-1"
                               />
                               <input
                                 type="text"
