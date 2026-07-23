@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, forwardRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -11,16 +11,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { ScoreboardPreview } from '@/components/admin/scoreboard-preview'
 import { HANDBOOK_SECTIONS, CATEGORIES } from '@/lib/constants'
 import { PENALTY_DISPLAY, parseGameTime, formatGT, gtSecondsValid, maskGameTime } from '@/lib/scoreboard'
+import { PENALTY_TABLE_MARKER, hasPenaltyTableMarker, stripPenaltyTableMarker } from '@/lib/penaltyTable'
 import type { SinglePenalty } from '@/types/scoreboard'
 import type { Question, SubQuestion } from '@/types'
 
-function AutoResizeTextarea({ value, onChange, placeholder, className, minHeight }: {
+const AutoResizeTextarea = forwardRef<HTMLTextAreaElement, {
   value: string
   onChange: (val: string) => void
   placeholder?: string
   className?: string
   minHeight?: number
-}) {
+}>(function AutoResizeTextarea({ value, onChange, placeholder, className, minHeight }, forwardedRef) {
   const ref = useRef<HTMLTextAreaElement>(null)
   const resize = useCallback(() => {
     const el = ref.current
@@ -31,7 +32,11 @@ function AutoResizeTextarea({ value, onChange, placeholder, className, minHeight
   useEffect(() => { resize() }, [value, resize])
   return (
     <textarea
-      ref={ref}
+      ref={(el) => {
+        ref.current = el
+        if (typeof forwardedRef === 'function') forwardedRef(el)
+        else if (forwardedRef) forwardedRef.current = el
+      }}
       rows={1}
       value={value}
       onChange={(e) => { onChange(e.target.value); resize() }}
@@ -40,7 +45,7 @@ function AutoResizeTextarea({ value, onChange, placeholder, className, minHeight
       className={`w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 resize-none overflow-hidden leading-5 ${className ?? ''}`}
     />
   )
-}
+})
 
 // ── Scoreboard draft types ──────────────────────────────────────────────────
 // The *editing* shapes below keep game times as raw strings while the admin
@@ -139,6 +144,26 @@ export default function QuestionForm({ question }: Props) {
 
   // Shared metadata
   const [text, setText] = useState(question?.text ?? '')
+  const situationTextRef = useRef<HTMLTextAreaElement | null>(null)
+
+  function insertPenaltyTableMarkerAtCursor() {
+    const el = situationTextRef.current
+    const cursorPos = el ? el.selectionStart : text.length
+    const withoutMarker = text.split(PENALTY_TABLE_MARKER).join('')
+    const removedBeforeCursor = text.slice(0, cursorPos).split(PENALTY_TABLE_MARKER).length - 1
+    const adjustedPos = Math.max(0, cursorPos - removedBeforeCursor * PENALTY_TABLE_MARKER.length)
+    const next = withoutMarker.slice(0, adjustedPos) + PENALTY_TABLE_MARKER + withoutMarker.slice(adjustedPos)
+    setText(next)
+    requestAnimationFrame(() => {
+      const caret = adjustedPos + PENALTY_TABLE_MARKER.length
+      el?.focus()
+      el?.setSelectionRange(caret, caret)
+    })
+  }
+
+  function removePenaltyTableMarker() {
+    setText(text.split(PENALTY_TABLE_MARKER).join(''))
+  }
   const [ruleRefs, setRuleRefs] = useState<string[]>(
     question?.rule_references?.length ? question.rule_references : (question?.rule_number ? [question.rule_number] : [''])
   )
@@ -555,6 +580,7 @@ export default function QuestionForm({ question }: Props) {
       <div className="space-y-2">
         <Label>Situation / Question</Label>
         <AutoResizeTextarea
+          ref={situationTextRef}
           minHeight={96}
           value={text}
           onChange={setText}
@@ -575,6 +601,32 @@ export default function QuestionForm({ question }: Props) {
             >
               + Add Penalty Table
             </button>
+          </div>
+        )}
+        {(mode === 'multiple_choice' || mode === 'multi_select' || mode === 'compound') && hasPenaltyTable && (
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-[11px] text-gray-400">
+              Click in the text above to place your cursor, then insert the table there. It shows as{' '}
+              <span className="font-mono text-gray-500">{PENALTY_TABLE_MARKER}</span> in the text.
+            </p>
+            <div className="flex items-center gap-3 shrink-0">
+              {hasPenaltyTableMarker(text) && (
+                <button
+                  type="button"
+                  onClick={removePenaltyTableMarker}
+                  className="text-xs text-gray-400 hover:text-red-500 font-medium"
+                >
+                  Remove placement marker
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={insertPenaltyTableMarkerAtCursor}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+              >
+                {hasPenaltyTableMarker(text) ? 'Move Penalty Table Here' : 'Insert Penalty Table Here'}
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -645,7 +697,7 @@ export default function QuestionForm({ question }: Props) {
                   </span>
                   <button
                     type="button"
-                    onClick={() => { setPenaltyA([]); setPenaltyB([]) }}
+                    onClick={() => { setPenaltyA([]); setPenaltyB([]); removePenaltyTableMarker() }}
                     className="text-xs text-red-400 hover:text-red-600 shrink-0"
                   >
                     Remove table

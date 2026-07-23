@@ -9,9 +9,42 @@ import { Badge } from '@/components/ui/badge'
 import { ScoreboardSimulator } from '@/components/quiz/scoreboard-simulator'
 import { encodeCompoundAnswer, type ScoreboardAnswerEntry } from '@/lib/quiz/answers'
 import { parseScoreboardConfig } from '@/types/scoreboard'
+import { splitOnPenaltyTableMarker, stripPenaltyTableMarker } from '@/lib/penaltyTable'
 import type { Question, QuizSession } from '@/types'
 
 type AnswerState = 'unanswered' | 'correct' | 'incorrect'
+
+function PenaltyTableBlock({ penA, penB }: { penA: any[]; penB: any[] }) {
+  return (
+    <div className="rounded-xl border border-slate-200 overflow-hidden">
+      <div className="grid grid-cols-2 divide-x divide-slate-200">
+        {(['A', 'B'] as const).filter((team) => (team === 'A' ? penA : penB).length > 0).map((team) => {
+          const entries = team === 'A' ? penA : penB
+          return (
+            <div key={team}>
+              <div className={`px-3 py-2 text-center text-[11px] font-bold uppercase tracking-widest border-b border-slate-200 bg-slate-800 ${team === 'A' ? 'text-blue-300' : 'text-red-300'}`}>
+                Team {team}
+              </div>
+              <div className="divide-y divide-slate-100">
+                {entries.map((e: any, i: number) => (
+                  <div key={i} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
+                    <span>
+                      <span className="font-bold text-slate-700">#{e.player}</span>
+                      <span className="text-slate-500 ml-2">{e.penalties}</span>
+                    </span>
+                    {e.time?.trim() && (
+                      <span className="text-slate-400 font-mono text-xs shrink-0">{e.time}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 const CLOCK_ENTRY = /^(.+?)\s*[–—]\s*(\d+:\d{2}|washed\s*out)$/i
 
@@ -248,44 +281,28 @@ export default function QuizSessionPage() {
     const compoundPenaltyTable = (question as any).penalty_table as { teamA?: any[]; teamB?: any[] } | null
     const compoundPenA: any[] = compoundPenaltyTable?.teamA ?? []
     const compoundPenB: any[] = compoundPenaltyTable?.teamB ?? []
+    const compoundHasTable = compoundPenA.length > 0 || compoundPenB.length > 0
+    const compoundSplit = compoundHasTable ? splitOnPenaltyTableMarker(question.text) : null
 
     return (
       <div className="max-w-2xl mx-auto space-y-4">
         {progressBar}
 
-        <div className="rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3">
-          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Situation</p>
-          <p className="text-sm text-blue-900 leading-relaxed">{question.text}</p>
+        <div className="rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 space-y-3">
+          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Situation</p>
+          {compoundSplit ? (
+            <>
+              {compoundSplit.before && <p className="text-sm text-blue-900 leading-relaxed">{compoundSplit.before}</p>}
+              <PenaltyTableBlock penA={compoundPenA} penB={compoundPenB} />
+              {compoundSplit.after && <p className="text-sm text-blue-900 leading-relaxed">{compoundSplit.after}</p>}
+            </>
+          ) : (
+            <p className="text-sm text-blue-900 leading-relaxed">{stripPenaltyTableMarker(question.text)}</p>
+          )}
         </div>
 
-        {(compoundPenA.length > 0 || compoundPenB.length > 0) && (
-          <div className="rounded-xl border border-slate-200 overflow-hidden">
-            <div className="grid grid-cols-2 divide-x divide-slate-200">
-              {(['A', 'B'] as const).filter((team) => (team === 'A' ? compoundPenA : compoundPenB).length > 0).map((team) => {
-                const entries = team === 'A' ? compoundPenA : compoundPenB
-                return (
-                  <div key={team}>
-                    <div className={`px-3 py-2 text-center text-[11px] font-bold uppercase tracking-widest border-b border-slate-200 bg-slate-800 ${team === 'A' ? 'text-blue-300' : 'text-red-300'}`}>
-                      Team {team}
-                    </div>
-                    <div className="divide-y divide-slate-100">
-                      {entries.map((e: any, i: number) => (
-                        <div key={i} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
-                          <span>
-                            <span className="font-bold text-slate-700">#{e.player}</span>
-                            <span className="text-slate-500 ml-2">{e.penalties}</span>
-                          </span>
-                          {e.time?.trim() && (
-                            <span className="text-slate-400 font-mono text-xs shrink-0">{e.time}</span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+        {!compoundSplit && compoundHasTable && (
+          <PenaltyTableBlock penA={compoundPenA} penB={compoundPenB} />
         )}
 
         <div className="flex items-center gap-2">
@@ -422,47 +439,31 @@ export default function QuizSessionPage() {
   const penaltyTable = (question as any).penalty_table as { teamA?: any[]; teamB?: any[] } | null
   const penA: any[] = penaltyTable?.teamA ?? []
   const penB: any[] = penaltyTable?.teamB ?? []
+  const hasTable = penA.length > 0 || penB.length > 0
+  const split = hasTable ? splitOnPenaltyTableMarker(question.text) : null
 
   return (
     <div className="max-w-2xl mx-auto space-y-4">
       {progressBar}
 
-      {/* Penalty table */}
-      {(penA.length > 0 || penB.length > 0) && (
-        <div className="rounded-xl border border-slate-200 overflow-hidden">
-          <div className="grid grid-cols-2 divide-x divide-slate-200">
-            {(['A', 'B'] as const).filter((team) => (team === 'A' ? penA : penB).length > 0).map((team) => {
-              const entries = team === 'A' ? penA : penB
-              return (
-                <div key={team}>
-                  <div className={`px-3 py-2 text-center text-[11px] font-bold uppercase tracking-widest border-b border-slate-200 bg-slate-800 ${team === 'A' ? 'text-blue-300' : 'text-red-300'}`}>
-                    Team {team}
-                  </div>
-                  <div className="divide-y divide-slate-100">
-                    {entries.map((e: any, i: number) => (
-                      <div key={i} className="px-3 py-2 text-sm flex items-center justify-between gap-2">
-                        <span>
-                          <span className="font-bold text-slate-700">#{e.player}</span>
-                          <span className="text-slate-500 ml-2">{e.penalties}</span>
-                        </span>
-                        {e.time?.trim() && (
-                          <span className="text-slate-400 font-mono text-xs shrink-0">{e.time}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
+      {/* Penalty table — legacy placement (no marker in text) */}
+      {!split && hasTable && <PenaltyTableBlock penA={penA} penB={penB} />}
 
       <Card>
         <CardContent className="pt-6">
-          <p className="font-medium text-gray-900 text-base leading-relaxed mb-1">
-            {question.text}
-          </p>
+          {split ? (
+            <>
+              {split.before && <p className="font-medium text-gray-900 text-base leading-relaxed mb-3">{split.before}</p>}
+              <div className="mb-3">
+                <PenaltyTableBlock penA={penA} penB={penB} />
+              </div>
+              {split.after && <p className="font-medium text-gray-900 text-base leading-relaxed mb-1">{split.after}</p>}
+            </>
+          ) : (
+            <p className="font-medium text-gray-900 text-base leading-relaxed mb-1">
+              {stripPenaltyTableMarker(question.text)}
+            </p>
+          )}
           {question.answer_type === 'multi_select' && (
             <p className="text-xs text-gray-400 mb-4">Select all that apply</p>
           )}
