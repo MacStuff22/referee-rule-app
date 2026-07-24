@@ -46,6 +46,14 @@ Everything is one `questions` table (see `supabase-schema.sql` + the `supabase-m
 
 `scoreboard_situation_type` (`'expiration' | 'coincidental'`) changes which answer controls are shown to the user (Wash Out + Already Expired vs. a single Coincidental Penalty toggle) and which penalties are hidden from the live penalty clock (coincidental-stoppage penalties never appear on the clock, only in the event log).
 
+### Writing / seeding situation-handbook questions
+
+Bulk-adding questions transcribed from the NHL Situation Handbook follows the pattern in any `scripts/seed-situations-*.mjs` file: a plain array of question objects, inserted directly against Supabase with the service-role key, `is_approved: false` by default so they land in the admin panel's pending queue for Morgan to review (only `is_approved: true` rows are eligible for `/api/quiz/start`). Three mistakes have actually happened when authoring these:
+
+- **`category` must be an exact string match against `CATEGORIES` in `src/lib/constants.ts`** — the admin form's Category field is a fixed `<select>`, not free text. A category string that isn't in that exact list (e.g. writing `"Goalkeeper's Penalties"` instead of the canonical `'Goalkeeper Penalties'`) inserts into the DB without error, but doesn't bind to any `<option>` in the edit form — it silently renders as blank/unselected there, i.e. it *looks* like the category is missing even though the row has data. Check the constant list before choosing a category; don't invent a grammatically-nicer variant of an existing one.
+- **Rule reference paragraphs are part of the citation, not optional detail.** When the handbook's answer cites a specific paragraph ("Rule 84.4, paragraph 3"), encode the paragraph in `rule_references` too, e.g. `'84.4 P.3'` — matching the format already documented inline in the admin form (`15.2` / `15.1 P.2` / `1.10(iv)` / `tbl.14(Ex.G12)`). Citing only the bare rule number when the source gives a paragraph loses precision Morgan actually wants.
+- **Don't carry over the handbook's capitalization.** The source PDF capitalizes generic hockey terms mid-sentence (Penalty Shot, Shootout, Delayed Penalty, Awarded Goal, Match Penalty, Coach, Referee, etc.) as a stylistic habit of that document, not because they're proper nouns. When writing question `text`, `options`, or `rationale`, use normal sentence case — only capitalize a genuine sentence-start or an actual proper noun (NHL, a rule number, a named rule like "Rule 24.2").
+
 ### Scoreboard simulator
 
 The scoreboard question type plays back `events` (penalties/goals at specific game-time timestamps) as a fake live broadcast, then asks the user to state each pending penalty's remaining time. It exists in two parallel implementations that must be kept behaviorally identical:
