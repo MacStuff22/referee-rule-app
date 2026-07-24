@@ -12,7 +12,7 @@ import { ScoreboardPreview } from '@/components/admin/scoreboard-preview'
 import { PenaltyTableChipEditor } from '@/components/admin/penalty-table-chip-editor'
 import { HANDBOOK_SECTIONS, CATEGORIES } from '@/lib/constants'
 import { PENALTY_DISPLAY, parseGameTime, formatGT, gtSecondsValid, maskGameTime } from '@/lib/scoreboard'
-import { PENALTY_TABLE_MARKER } from '@/lib/penaltyTable'
+import { PENALTY_TABLE_MARKER, hasPenaltyTableMarker } from '@/lib/penaltyTable'
 import type { SinglePenalty } from '@/types/scoreboard'
 import type { Question, SubQuestion } from '@/types'
 
@@ -609,10 +609,25 @@ export default function QuestionForm({ question }: Props) {
           </div>
         )}
         {(mode === 'multiple_choice' || mode === 'multi_select' || mode === 'compound') && hasPenaltyTable && (
-          <p className="text-[11px] text-gray-400">
-            The blue <span className="text-blue-600 font-semibold">Penalty Table</span> chip shows where the table
-            will appear. Click it once to pick it up, then click anywhere in the text to drop it there.
-          </p>
+          hasPenaltyTableMarker(text) ? (
+            <p className="text-[11px] text-gray-400">
+              The blue <span className="text-blue-600 font-semibold">Penalty Table</span> chip shows where the table
+              will appear. Click it once to pick it up, then click anywhere in the text to drop it there.
+            </p>
+          ) : (
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <p className="text-[11px] text-amber-600">
+                This question has a penalty table but no placement set yet — it currently displays above the text (legacy position).
+              </p>
+              <button
+                type="button"
+                onClick={appendPenaltyTableMarker}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium shrink-0"
+              >
+                + Place Penalty Table in Text
+              </button>
+            </div>
+          )
         )}
       </div>
 
