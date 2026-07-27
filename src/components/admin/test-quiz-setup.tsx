@@ -15,6 +15,9 @@ interface Props {
   onStart: (selected: Question[]) => void
 }
 
+const QUIZ_LENGTHS = [5, 10, 15, 'unlimited'] as const
+type QuizLength = (typeof QUIZ_LENGTHS)[number]
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
@@ -105,6 +108,7 @@ export function TestQuizSetup({ questions, onStart }: Props) {
   const [search, setSearch] = useState('')
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [shuffleOrder, setShuffleOrder] = useState(true)
+  const [quizLength, setQuizLength] = useState<QuizLength | null>(null)
 
   const filtered = useMemo(() => {
     return questions.filter((q) => {
@@ -140,6 +144,12 @@ export function TestQuizSetup({ questions, onStart }: Props) {
     })
   }
 
+  function applyQuizLength(length: QuizLength) {
+    setQuizLength(length)
+    const chosen = length === 'unlimited' ? filtered : shuffle(filtered).slice(0, length)
+    setChecked(new Set(chosen.map((q) => q.id)))
+  }
+
   function selectAllFiltered() {
     setChecked((prev) => {
       const next = new Set(prev)
@@ -173,6 +183,31 @@ export function TestQuizSetup({ questions, onStart }: Props) {
         Pick categories and/or specific questions to preview exactly as an end user would see them. Nothing here is
         recorded — progress and answers reset once you leave this page.
       </p>
+
+      {/* Quiz length */}
+      <div className="bg-white border rounded-xl p-4 space-y-2">
+        <label className="block text-xs font-medium text-gray-500">Quiz Length</label>
+        <div className="flex gap-1.5">
+          {QUIZ_LENGTHS.map((len) => (
+            <button
+              key={len}
+              type="button"
+              onClick={() => applyQuizLength(len)}
+              className={`px-4 h-9 rounded-md border text-sm font-medium transition-all ${
+                quizLength === len
+                  ? 'border-slate-900 bg-slate-900 text-white'
+                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
+              }`}
+            >
+              {len === 'unlimited' ? 'Unlimited' : len}
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-gray-400">
+          Randomly selects that many questions from the filters below ({filtered.length} currently match). You can
+          still adjust the selection by hand afterward.
+        </p>
+      </div>
 
       {/* Filters */}
       <div className="bg-white border rounded-xl p-4 space-y-3">
