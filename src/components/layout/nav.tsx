@@ -29,6 +29,7 @@ export default function Nav({ profile }: NavProps) {
       ? [
           { href: '/admin/questions', label: 'Questions' },
           { href: '/admin/users', label: 'Users' },
+          { href: '/admin/test-quiz', label: 'Test Quiz' },
         ]
       : []),
   ]
