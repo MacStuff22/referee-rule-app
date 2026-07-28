@@ -49,6 +49,10 @@ export default function TestQuizClient({ questions }: { questions: Question[] })
     }
   }
 
+  function handleExit() {
+    setPhase('complete')
+  }
+
   function handleRestart() {
     setPhase('setup')
     setSelectedQuestions([])
@@ -85,6 +89,7 @@ export default function TestQuizClient({ questions }: { questions: Question[] })
       progress={{ current: currentIndex + 1, total: selectedQuestions.length }}
       onAnswered={handleAnswered}
       onNext={handleNext}
+      onExit={handleExit}
       nextLabel={isLastQuestion ? 'Finish Test Quiz' : 'Next Question →'}
     />
   )

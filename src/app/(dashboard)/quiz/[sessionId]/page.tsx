@@ -54,6 +54,15 @@ export default function QuizSessionPage() {
     })
   }
 
+  async function handleExit() {
+    if (!session) return
+    await supabase
+      .from('quiz_sessions')
+      .update({ completed_at: new Date().toISOString() })
+      .eq('id', session.id)
+    router.push(`/quiz/${sessionId}/results`)
+  }
+
   async function handleNext() {
     if (!session) return
     const nextIndex = session.current_index + 1
@@ -88,6 +97,7 @@ export default function QuizSessionPage() {
       progress={progress}
       onAnswered={handleAnswered}
       onNext={handleNext}
+      onExit={handleExit}
       nextLabel={isLastQuestion ? 'See Results' : 'Next Question →'}
     />
   )

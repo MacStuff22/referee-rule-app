@@ -19,6 +19,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ScoreboardSimulator } from '@/components/quiz/scoreboard-simulator'
 import { encodeCompoundAnswer, type ScoreboardAnswerEntry } from '@/lib/quiz/answers'
 import { parseScoreboardConfig } from '@/types/scoreboard'
@@ -38,6 +39,8 @@ export interface QuizRunnerProps {
   onAnswered: (result: QuizAnsweredResult) => void | Promise<void>
   onNext: () => void | Promise<void>
   nextLabel: string
+  /** Lets the user leave before finishing. Answers already submitted stay recorded; the parent decides what "leaving" means (end the session and show results, or return to setup). Omit to hide the exit control entirely. */
+  onExit?: () => void
 }
 
 function PenaltyTableBlock({ penA, penB }: { penA: any[]; penB: any[] }) {
@@ -105,7 +108,9 @@ function shuffleIndices(count: number): number[] {
   return arr
 }
 
-export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel }: QuizRunnerProps) {
+export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, onExit }: QuizRunnerProps) {
+  const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
+
   // Standard question state
   const [selected, setSelected] = useState<number[]>([])
   const [answerState, setAnswerState] = useState<AnswerState>('unanswered')
@@ -187,6 +192,17 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel }
 
   const progressBar = (
     <div className="space-y-1">
+      {onExit && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setExitConfirmOpen(true)}
+            className="text-xs text-gray-400 hover:text-red-500"
+          >
+            Exit Quiz
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-between text-sm text-gray-500">
         <span>Question {progress.current} of {progress.total}</span>
         <div className="flex gap-2">
@@ -203,6 +219,23 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel }
       </div>
     </div>
   )
+
+  const exitDialog = onExit ? (
+    <Dialog open={exitConfirmOpen} onOpenChange={setExitConfirmOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Exit this quiz?</DialogTitle>
+          <DialogDescription>
+            Everything you&apos;ve already submitted stays recorded. This question won&apos;t be counted.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setExitConfirmOpen(false)}>Cancel</Button>
+          <Button variant="destructive" onClick={() => { setExitConfirmOpen(false); onExit() }}>Exit Quiz</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  ) : null
 
   // ─── Compound question render ────────────────────────────────────────────────
 
@@ -316,6 +349,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel }
             {nextLabel}
           </Button>
         )}
+        {exitDialog}
       </div>
     )
   }
@@ -336,6 +370,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel }
           <Button onClick={onNext} className="w-full" size="lg">
             {nextLabel}
           </Button>
+          {exitDialog}
         </div>
       )
     }
@@ -364,6 +399,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel }
           onNext={onNext}
           nextLabel={nextLabel}
         />
+        {exitDialog}
       </div>
     )
   }
@@ -457,6 +493,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel }
           {nextLabel}
         </Button>
       )}
+      {exitDialog}
     </div>
   )
 }
