@@ -106,7 +106,11 @@ export function TestQuizSetup({ questions, onStart }: Props) {
   const [category, setCategory] = useState('')
   const [league, setLeague] = useState<League | ''>('')
   const [search, setSearch] = useState('')
-  const [checked, setChecked] = useState<Set<string>>(new Set())
+  // Questions explicitly excluded from the current filtered view. Selection
+  // is always relative to `filtered` (never a standalone list of ids), so
+  // there is no way for a question that's fallen out of view -- because a
+  // filter changed -- to silently stay "selected" and slip into the quiz.
+  const [deselected, setDeselected] = useState<Set<string>>(new Set())
   const [shuffleOrder, setShuffleOrder] = useState(true)
   const [quizLength, setQuizLength] = useState<QuizLength | null>(null)
 
@@ -135,8 +139,19 @@ export function TestQuizSetup({ questions, onStart }: Props) {
     })
   }, [questions, questionType, handbookSection, situationId, category, league, features, search])
 
+  // Whenever the filtered set changes, start fresh: everything currently
+  // shown is selected by default, and any leftover exclusions from a
+  // previous, different filter view no longer apply.
+  useEffect(() => {
+    setDeselected(new Set())
+    setQuizLength(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtered])
+
+  const selectedCount = filtered.length - deselected.size
+
   function toggleChecked(id: string) {
-    setChecked((prev) => {
+    setDeselected((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -146,16 +161,18 @@ export function TestQuizSetup({ questions, onStart }: Props) {
 
   function applyQuizLength(length: QuizLength) {
     setQuizLength(length)
-    const chosen = length === 'unlimited' ? filtered : shuffle(filtered).slice(0, length)
-    setChecked(new Set(chosen.map((q) => q.id)))
+    const chosenIds = new Set(
+      length === 'unlimited' ? filtered.map((q) => q.id) : shuffle(filtered).slice(0, length).map((q) => q.id)
+    )
+    setDeselected(new Set(filtered.filter((q) => !chosenIds.has(q.id)).map((q) => q.id)))
   }
 
   function selectAllFiltered() {
-    setChecked((prev) => {
-      const next = new Set(prev)
-      filtered.forEach((q) => next.add(q.id))
-      return next
-    })
+    setDeselected(new Set())
+  }
+
+  function deselectAll() {
+    setDeselected(new Set(filtered.map((q) => q.id)))
   }
 
   function clearFilters() {
@@ -172,7 +189,7 @@ export function TestQuizSetup({ questions, onStart }: Props) {
     questionType || features.size > 0 || handbookSection || situationId || category || league || search
 
   function handleStart() {
-    let chosen = questions.filter((q) => checked.has(q.id))
+    let chosen = filtered.filter((q) => !deselected.has(q.id))
     if (shuffleOrder) chosen = shuffle(chosen)
     onStart(chosen)
   }
@@ -186,22 +203,29 @@ export function TestQuizSetup({ questions, onStart }: Props) {
 
       {/* Quiz length */}
       <div className="bg-white border rounded-xl p-4 space-y-2">
-        <label className="block text-xs font-medium text-gray-500">Quiz Length</label>
-        <div className="flex gap-1.5">
-          {QUIZ_LENGTHS.map((len) => (
-            <button
-              key={len}
-              type="button"
-              onClick={() => applyQuizLength(len)}
-              className={`px-4 h-9 rounded-md border text-sm font-medium transition-all ${
-                quizLength === len
-                  ? 'border-slate-900 bg-slate-900 text-white'
-                  : 'border-gray-200 text-gray-600 hover:border-gray-300'
-              }`}
-            >
-              {len === 'unlimited' ? 'Unlimited' : len}
-            </button>
-          ))}
+        <div className="flex items-end justify-between gap-3 flex-wrap">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Quiz Length</label>
+            <div className="flex gap-1.5">
+              {QUIZ_LENGTHS.map((len) => (
+                <button
+                  key={len}
+                  type="button"
+                  onClick={() => applyQuizLength(len)}
+                  className={`px-4 h-9 rounded-md border text-sm font-medium transition-all ${
+                    quizLength === len
+                      ? 'border-slate-900 bg-slate-900 text-white'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300'
+                  }`}
+                >
+                  {len === 'unlimited' ? 'Unlimited' : len}
+                </button>
+              ))}
+            </div>
+          </div>
+          <Button onClick={handleStart} disabled={selectedCount === 0} size="lg">
+            Start Test Quiz ({selectedCount})
+          </Button>
         </div>
         <p className="text-xs text-gray-400">
           Randomly selects that many questions from the filters below ({filtered.length} currently match). You can
@@ -302,15 +326,17 @@ export function TestQuizSetup({ questions, onStart }: Props) {
       <div className="bg-white border rounded-xl overflow-hidden">
         <div className="px-4 py-2.5 border-b flex items-center justify-between bg-gray-50 flex-wrap gap-2">
           <span className="text-xs font-medium text-gray-500">
-            {filtered.length} question{filtered.length === 1 ? '' : 's'} shown · {checked.size} selected
+            {filtered.length} question{filtered.length === 1 ? '' : 's'} shown · {selectedCount} selected
           </span>
           <div className="flex gap-3">
-            <button type="button" onClick={selectAllFiltered} className="text-xs text-blue-600 hover:underline">
-              Select all shown
-            </button>
-            {checked.size > 0 && (
-              <button type="button" onClick={() => setChecked(new Set())} className="text-xs text-gray-500 hover:underline">
-                Clear selection
+            {deselected.size > 0 && (
+              <button type="button" onClick={selectAllFiltered} className="text-xs text-blue-600 hover:underline">
+                Select all shown
+              </button>
+            )}
+            {selectedCount > 0 && (
+              <button type="button" onClick={deselectAll} className="text-xs text-gray-500 hover:underline">
+                Deselect all
               </button>
             )}
           </div>
@@ -323,7 +349,7 @@ export function TestQuizSetup({ questions, onStart }: Props) {
               <label key={q.id} className="px-4 py-3 flex items-start gap-3 cursor-pointer hover:bg-gray-50">
                 <input
                   type="checkbox"
-                  checked={checked.has(q.id)}
+                  checked={!deselected.has(q.id)}
                   onChange={() => toggleChecked(q.id)}
                   className="mt-1"
                 />
@@ -344,16 +370,10 @@ export function TestQuizSetup({ questions, onStart }: Props) {
         )}
       </div>
 
-      {/* Start */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <label className="flex items-center gap-2 text-sm text-gray-600">
-          <input type="checkbox" checked={shuffleOrder} onChange={(e) => setShuffleOrder(e.target.checked)} />
-          Shuffle question order
-        </label>
-        <Button onClick={handleStart} disabled={checked.size === 0} size="lg">
-          Start Test Quiz ({checked.size})
-        </Button>
-      </div>
+      <label className="flex items-center gap-2 text-sm text-gray-600">
+        <input type="checkbox" checked={shuffleOrder} onChange={(e) => setShuffleOrder(e.target.checked)} />
+        Shuffle question order
+      </label>
     </div>
   )
 }
