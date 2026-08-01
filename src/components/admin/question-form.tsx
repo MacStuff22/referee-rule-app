@@ -55,10 +55,12 @@ const AutoResizeTextarea = forwardRef<HTMLTextAreaElement, {
 
 interface ScoreboardEvent {
   gt: string  // raw user input, e.g. "3:18" — parsed to seconds only on save
-  type: 'penalty' | 'goal'
+  type: 'penalty' | 'goal' | 'other'
   team: 'A' | 'B'
   player: string
   penalties: SinglePenalty[]  // one entry for single; multiple for combined (e.g. minor + major)
+  title: string       // 'other' events only — replaces the "Penalty"/"Goal" overlay label
+  descriptor: string  // 'other' events only — the overlay's sub-text
 }
 
 type ScoreboardSituationType = 'coincidental' | 'expiration'
@@ -78,7 +80,7 @@ function parseGT(s: string): number {
 }
 
 function emptyEvent(): ScoreboardEvent {
-  return { gt: '', type: 'penalty', team: 'A', player: '', penalties: [{ penalty_type: 'minor', infraction: '' }] }
+  return { gt: '', type: 'penalty', team: 'A', player: '', penalties: [{ penalty_type: 'minor', infraction: '' }], title: '', descriptor: '' }
 }
 
 function emptyPlayerAnswer(): ScoreboardPlayerAnswer {
@@ -381,10 +383,14 @@ export default function QuestionForm({ question }: Props) {
         const e = sbEvents[i]
         if (parseGT(e.gt) <= 0) { setError(`Event ${i + 1}: enter a valid game time (e.g. 3:18).`); return false }
         if (!gtSecondsValid(e.gt)) { setError(`Event ${i + 1}: seconds must be 0–59.`); return false }
-        if (!e.team) { setError(`Event ${i + 1}: team is required.`); return false }
+        if (e.type !== 'other' && !e.team) { setError(`Event ${i + 1}: team is required.`); return false }
         if (e.type === 'penalty') {
           if (!e.player.trim()) { setError(`Event ${i + 1}: player number is required.`); return false }
           if (e.penalties.length === 0) { setError(`Event ${i + 1}: select a penalty type.`); return false }
+        }
+        if (e.type === 'other') {
+          if (!e.title.trim()) { setError(`Event ${i + 1}: enter a title for this event.`); return false }
+          if (!e.descriptor.trim()) { setError(`Event ${i + 1}: enter a descriptor for this event.`); return false }
         }
       }
 
@@ -933,7 +939,7 @@ export default function QuestionForm({ question }: Props) {
                       <div className="space-y-0.5">
                         <label className="text-xs text-gray-400">Type</label>
                         <div className="flex gap-1">
-                          {(['penalty', 'goal'] as const).map((t) => (
+                          {(['penalty', 'goal', 'other'] as const).map((t) => (
                             <button
                               key={t}
                               onClick={() => updateSbEvent(i, 'type', t)}
@@ -947,22 +953,24 @@ export default function QuestionForm({ question }: Props) {
                         </div>
                       </div>
 
-                      <div className="space-y-0.5">
-                        <label className="text-xs text-gray-400">Team</label>
-                        <div className="flex gap-1">
-                          {(['A', 'B'] as const).map((t) => (
-                            <button
-                              key={t}
-                              onClick={() => updateSbEvent(i, 'team', t)}
-                              className={`w-9 h-9 rounded-md border text-sm font-medium transition-all ${
-                                evt.team === t ? 'border-slate-700 bg-slate-700 text-white' : 'border-gray-200 hover:border-gray-300'
-                              }`}
-                            >
-                              {t}
-                            </button>
-                          ))}
+                      {evt.type !== 'other' && (
+                        <div className="space-y-0.5">
+                          <label className="text-xs text-gray-400">Team</label>
+                          <div className="flex gap-1">
+                            {(['A', 'B'] as const).map((t) => (
+                              <button
+                                key={t}
+                                onClick={() => updateSbEvent(i, 'team', t)}
+                                className={`w-9 h-9 rounded-md border text-sm font-medium transition-all ${
+                                  evt.team === t ? 'border-slate-700 bg-slate-700 text-white' : 'border-gray-200 hover:border-gray-300'
+                                }`}
+                              >
+                                {t}
+                              </button>
+                            ))}
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       {evt.type === 'penalty' && (
                         <div className="space-y-0.5">
@@ -1069,6 +1077,30 @@ export default function QuestionForm({ question }: Props) {
                             </button>
                           </div>
                         )}
+                      </div>
+                    )}
+
+                    {/* Other event: custom title + descriptor */}
+                    {evt.type === 'other' && (
+                      <div className="space-y-2">
+                        <div className="space-y-0.5">
+                          <label className="text-xs text-gray-400">Title <span className="text-gray-300">(shown where "Penalty"/"Goal" normally appears)</span></label>
+                          <Input
+                            value={evt.title}
+                            onChange={(e) => updateSbEvent(i, 'title', e.target.value)}
+                            placeholder="e.g. Leaving the Penalty Box Early"
+                            className="text-sm"
+                          />
+                        </div>
+                        <div className="space-y-0.5">
+                          <label className="text-xs text-gray-400">Descriptor</label>
+                          <AutoResizeTextarea
+                            value={evt.descriptor}
+                            onChange={(val) => updateSbEvent(i, 'descriptor', val)}
+                            placeholder="e.g. A#5 left the penalty box early on their own accord with 0:02 remaining"
+                            className="text-sm"
+                          />
+                        </div>
                       </div>
                     )}
                   </div>

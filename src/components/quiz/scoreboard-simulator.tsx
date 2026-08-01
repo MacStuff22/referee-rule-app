@@ -106,7 +106,10 @@ export function ScoreboardSimulator({
       ...prev,
       ...group.map((e) => ({
         gt: e.gt,
-        text: e.type === 'goal' ? `GOAL — Team ${e.team}` : `Team ${e.team} #${e.player} — ${penaltyLabel(e)}`,
+        text:
+          e.type === 'goal' ? `GOAL — Team ${e.team}`
+          : e.type === 'other' ? (e.descriptor ? `${e.title} — ${e.descriptor}` : e.title)
+          : `Team ${e.team} #${e.player} — ${penaltyLabel(e)}`,
         isGoal: e.type === 'goal',
       })),
     ])
@@ -135,8 +138,12 @@ export function ScoreboardSimulator({
       setOverlay({ title: `Goal — Team ${goalInGroup.team}`, sub: null, isGoal: true })
     } else {
       const evt = group[0]
-      const title = `Penalt${(evt.penalties?.length ?? 0) > 1 ? 'ies' : 'y'} — Team ${evt.team} #${evt.player}`
-      setOverlay({ title, sub: penaltyLabel(evt), isGoal: false })
+      if (evt.type === 'other') {
+        setOverlay({ title: evt.title, sub: evt.descriptor || null, isGoal: false })
+      } else {
+        const title = `Penalt${(evt.penalties?.length ?? 0) > 1 ? 'ies' : 'y'} — Team ${evt.team} #${evt.player}`
+        setOverlay({ title, sub: penaltyLabel(evt), isGoal: false })
+      }
     }
 
     setPhase('overlay')

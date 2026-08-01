@@ -21,10 +21,12 @@ export type SinglePenalty = z.infer<typeof singlePenaltySchema>
 
 export const scoreboardEventSchema = z.object({
   gt: z.number(),                       // game time in seconds (stored form)
-  type: z.enum(['penalty', 'goal']),
-  team: z.enum(['A', 'B']),
+  type: z.enum(['penalty', 'goal', 'other']),
+  team: z.enum(['A', 'B']).optional(),   // not used by 'other' events
   player: z.string().default(''),
   penalties: z.array(singlePenaltySchema).default([]),
+  title: z.string().default(''),        // 'other' events only — replaces the "Penalty"/"Goal" overlay label
+  descriptor: z.string().default(''),   // 'other' events only — the overlay's sub-text
 })
 export type ScoreboardEvent = z.infer<typeof scoreboardEventSchema>
 
