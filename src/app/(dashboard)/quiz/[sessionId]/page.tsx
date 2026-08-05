@@ -44,14 +44,19 @@ export default function QuizSessionPage() {
     setLoading(false)
   }
 
-  async function handleAnswered(result: QuizAnsweredResult) {
-    if (!question || !session) return
-    await supabase.from('quiz_answers').insert({
-      session_id: session.id,
-      question_id: question.id,
-      selected_answers: result.selectedAnswers,
-      is_correct: result.isCorrect,
+  async function handleAnswered(selectedAnswers: unknown): Promise<QuizAnsweredResult> {
+    if (!question || !session) return { isCorrect: false }
+    const res = await fetch('/api/quiz/answer', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: session.id, questionId: question.id, selectedAnswers }),
     })
+    const data = await res.json()
+    if (!res.ok) {
+      console.error('Failed to submit answer:', data.error)
+      return { isCorrect: false }
+    }
+    return { isCorrect: data.isCorrect }
   }
 
   async function handleExit() {

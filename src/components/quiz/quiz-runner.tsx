@@ -29,14 +29,18 @@ import type { Question } from '@/types'
 type AnswerState = 'unanswered' | 'correct' | 'incorrect'
 
 export interface QuizAnsweredResult {
-  selectedAnswers: unknown
   isCorrect: boolean
 }
 
 export interface QuizRunnerProps {
   question: Question
   progress: { current: number; total: number }
-  onAnswered: (result: QuizAnsweredResult) => void | Promise<void>
+  /**
+   * Hands the raw selected answer to the parent and waits for it to say
+   * whether it's correct — the parent (or, for the real quiz, the server
+   * behind it) is the authority on correctness, not QuizRunner itself.
+   */
+  onAnswered: (selectedAnswers: unknown) => Promise<QuizAnsweredResult>
   onNext: () => void | Promise<void>
   nextLabel: string
   /** Lets the user leave before finishing. Answers already submitted stay recorded; the parent decides what "leaving" means (end the session and show results, or return to setup). Omit to hide the exit control entirely. */
@@ -110,6 +114,7 @@ function shuffleIndices(count: number): number[] {
 
 export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, onExit }: QuizRunnerProps) {
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
   // Standard question state
   const [selected, setSelected] = useState<number[]>([])
@@ -148,17 +153,23 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
   // ─── Standard question submit ───────────────────────────────────────────────
 
   async function submitAnswer() {
-    if (selected.length === 0) return
-    const sortedSelected = [...selected].sort()
-    const sortedCorrect = [...question.correct_answers].sort()
-    const isCorrect = JSON.stringify(sortedSelected) === JSON.stringify(sortedCorrect)
-    setAnswerState(isCorrect ? 'correct' : 'incorrect')
-    await onAnswered({ selectedAnswers: selected, isCorrect })
+    if (selected.length === 0 || submitting) return
+    setSubmitting(true)
+    try {
+      const result = await onAnswered(selected)
+      setAnswerState(result.isCorrect ? 'correct' : 'incorrect')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   // ─── Compound question submit ───────────────────────────────────────────────
 
   async function submitCompoundAnswer() {
+    // Per-part reveal stays local -- it's already visible information
+    // (sub_questions[i].correct_answers is part of the fetched question),
+    // not the security boundary. Only the final persisted row's is_correct
+    // is decided by the parent (server-verified for the real quiz).
     if (selected.length === 0) return
     const subQ = question.sub_questions[compoundSubIndex]
     const sortedSelected = [...selected].sort()
@@ -171,8 +182,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
     setCompoundSubCorrect(newSubCorrect)
     const isLastSubQ = compoundSubIndex === question.sub_questions.length - 1
     if (isLastSubQ) {
-      const overallCorrect = newSubCorrect.every(Boolean)
-      await onAnswered({ selectedAnswers: encodeCompoundAnswer(newSubAnswers), isCorrect: overallCorrect })
+      await onAnswered(encodeCompoundAnswer(newSubAnswers))
     }
   }
 
@@ -184,8 +194,8 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
 
   // ─── Scoreboard question submit (invoked by ScoreboardSimulator) ─────────────
 
-  async function saveScoreboardAnswer(result: { isCorrect: boolean; entries: ScoreboardAnswerEntry[] }) {
-    await onAnswered({ selectedAnswers: result.entries, isCorrect: result.isCorrect })
+  async function saveScoreboardAnswer(entries: ScoreboardAnswerEntry[]): Promise<QuizAnsweredResult> {
+    return onAnswered(entries)
   }
 
   // ─── Shared progress bar ─────────────────────────────────────────────────────
@@ -485,7 +495,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
       )}
 
       {answerState === 'unanswered' ? (
-        <Button onClick={submitAnswer} disabled={selected.length === 0} className="w-full" size="lg">
+        <Button onClick={submitAnswer} disabled={selected.length === 0 || submitting} className="w-full" size="lg">
           Submit Answer
         </Button>
       ) : (

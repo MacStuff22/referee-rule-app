@@ -45,8 +45,13 @@ export interface ScoreboardSimulatorProps {
   revealAnswer?: boolean
   /** Offer Replay / Reset (admin preview). */
   allowReplay?: boolean
-  /** Fired once when the referee submits — the live quiz saves the answer here. */
-  onSubmit?: (result: { isCorrect: boolean; entries: ScoreboardAnswerEntry[] }) => void
+  /**
+   * Fired once when the referee submits, with the raw entries — the parent
+   * (or, for the real quiz, the server behind it) decides whether they're
+   * correct. When omitted (admin preview), correctness is computed locally
+   * since nothing is persisted and the admin already knows the answers.
+   */
+  onSubmit?: (entries: ScoreboardAnswerEntry[]) => Promise<{ isCorrect: boolean }>
   /** Fired when advancing after submit — the live quiz moves to the next question. */
   onNext?: () => void
   nextLabel?: string
@@ -79,6 +84,7 @@ export function ScoreboardSimulator({
   const [inputs, setInputs] = useState<string[]>(active.map(() => ''))
   const [woState, setWoState] = useState<boolean[]>(active.map(() => false))
   const [submitted, setSubmitted] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [results, setResults] = useState<boolean[]>([])
   const [answerState, setAnswerState] = useState<'unanswered' | 'correct' | 'incorrect'>('unanswered')
 
@@ -199,6 +205,7 @@ export function ScoreboardSimulator({
     setInputs(active.map(() => ''))
     setWoState(active.map(() => false))
     setSubmitted(false)
+    setSubmitting(false)
     setResults([])
     setAnswerState('unanswered')
     groupSizeRef.current = 1
@@ -211,23 +218,40 @@ export function ScoreboardSimulator({
     if (on) setInputs((prev) => { const n = [...prev]; n[i] = ''; return n })
   }
 
-  function submit() {
-    if (submitted) return
+  async function submit() {
+    if (submitted || submitting) return
+
+    // Per-player display always reflects the correct answers already
+    // visible to the user (playerAnswers) -- not the security boundary,
+    // only the persisted is_correct below is.
     const res = active.map((a, i) => {
       if (a.wash_out) return woState[i]
       if (woState[i]) return false
       const s = parseGameTime(inputs[i])
       return s !== null && s === a.correct_secs
     })
-    const isCorrect = res.every(Boolean)
-    setResults(res)
-    setSubmitted(true)
-    setAnswerState(isCorrect ? 'correct' : 'incorrect')
 
     const entries = encodeScoreboardAnswer(
       active.map((_, i) => ({ washOut: woState[i], secs: parseGameTime(inputs[i]) }))
     )
-    onSubmit?.({ isCorrect, entries })
+
+    let isCorrect: boolean
+    if (onSubmit) {
+      setSubmitting(true)
+      try {
+        const result = await onSubmit(entries)
+        isCorrect = result.isCorrect
+      } finally {
+        setSubmitting(false)
+      }
+    } else {
+      // Admin preview: nothing persisted, no server to ask -- use the local result.
+      isCorrect = res.every(Boolean)
+    }
+
+    setResults(res)
+    setSubmitted(true)
+    setAnswerState(isCorrect ? 'correct' : 'incorrect')
   }
 
   // ── Derived: fired penalty slots ───────────────────────────────────────────
@@ -470,7 +494,7 @@ export function ScoreboardSimulator({
 
           <div className="flex gap-2">
             {!submitted ? (
-              <Button onClick={submit} disabled={!allFilled} className="flex-1" size="lg">Submit Answer</Button>
+              <Button onClick={submit} disabled={!allFilled || submitting} className="flex-1" size="lg">Submit Answer</Button>
             ) : onNext ? (
               <Button onClick={onNext} className="flex-1" size="lg">{nextLabel}</Button>
             ) : (

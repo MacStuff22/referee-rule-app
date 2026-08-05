@@ -13,6 +13,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { QuizRunner, type QuizAnsweredResult } from '@/components/quiz/quiz-runner'
 import { TestQuizSetup } from '@/components/admin/test-quiz-setup'
+import { scoreAnswer } from '@/lib/quiz/scoring'
 import type { Question } from '@/types'
 
 type Phase = 'setup' | 'quiz' | 'complete'
@@ -35,9 +36,13 @@ export default function TestQuizClient({ questions }: { questions: Question[] })
     setPhase('quiz')
   }
 
-  async function handleAnswered(result: QuizAnsweredResult) {
+  async function handleAnswered(selectedAnswers: unknown): Promise<QuizAnsweredResult> {
     const question = selectedQuestions[currentIndex]
-    setAnswered((prev) => [...prev, { questionId: question.id, isCorrect: result.isCorrect }])
+    // Nothing here is ever persisted, so there's nothing to verify server-side —
+    // compute locally with the same scoring logic the real quiz's API route uses.
+    const isCorrect = scoreAnswer(question, selectedAnswers)
+    setAnswered((prev) => [...prev, { questionId: question.id, isCorrect }])
+    return { isCorrect }
   }
 
   function handleNext() {
