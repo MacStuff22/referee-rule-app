@@ -2,7 +2,7 @@ export type UserRole = 'admin' | 'user'
 export type League = 'NHL' | 'AHL' | 'both'
 export type QuestionType = 'situation' | 'written' | 'compound' | 'scoreboard'
 export type AnswerType = 'multiple_choice' | 'multi_select'
-export type SessionLength = 'quick' | 'standard' | 'full'
+export type SessionLength = 'quick' | 'standard' | 'full' | 'path'
 
 export interface PenaltyTableEntry {
   player: string   // e.g. "45"
@@ -58,8 +58,41 @@ export interface QuizSession {
   session_length: SessionLength
   question_ids: string[]
   current_index: number
+  path_id: string | null
   started_at: string
   completed_at: string | null
+}
+
+export interface UserCategoryMastery {
+  id: string
+  user_id: string
+  category: string
+  ema_score: number
+  total_answered: number
+  last_answered_at: string | null
+  refresh_interval_days: number
+  updated_at: string
+}
+
+export type PathPoolFilter =
+  | { type: 'situation_book' }
+  | { type: 'categories'; categories: string[] }
+  | { type: 'weak_areas'; categories: string[] }
+
+export type PathStatus = 'active' | 'completed' | 'abandoned'
+
+export interface QuizPath {
+  id: string
+  user_id: string
+  name: string
+  pool_filter: PathPoolFilter
+  pool_question_ids: string[]
+  start_date: string
+  target_end_date: string
+  days_per_week: number
+  questions_per_day: number
+  status: PathStatus
+  created_at: string
 }
 
 export interface QuizAnswer {

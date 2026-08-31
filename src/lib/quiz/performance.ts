@@ -1,56 +1,44 @@
 // ============================================================
-// Category performance
+// User answer history
 //
-// The dashboard (progress-by-category) and the quiz builder (weight my weak
-// categories) both need the same aggregation: correct vs total answered per
-// category. This is the single, correct implementation both call.
-//
-// Note: the previous dashboard version passed a query builder into .eq(),
-// which Supabase cannot do, so it silently returned nothing. The correct
-// pattern — fetch the user's session ids, then filter answers with .in() —
-// lives here.
+// Small Supabase-touching helpers shared by quiz-start weighting and the
+// dashboard. quiz_answers has no user_id column of its own, so every
+// query here goes through the user's session ids first, then filters
+// answers by those — the correct pattern since a query builder can't
+// filter on a joined table's column via .eq() (see getRecentlyAnsweredQuestionIds).
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export type CategoryScores = Record<string, { correct: number; total: number }>
-
-export async function getCategoryScores(
-  supabase: SupabaseClient,
-  userId: string
-): Promise<CategoryScores> {
+async function getSessionIds(supabase: SupabaseClient, userId: string): Promise<string[]> {
   const { data: sessions } = await supabase
     .from('quiz_sessions')
     .select('id')
     .eq('user_id', userId)
-
-  const sessionIds = sessions?.map((s) => s.id) ?? []
-  if (sessionIds.length === 0) return {}
-
-  const { data: answers } = await supabase
-    .from('quiz_answers')
-    .select('is_correct, questions(category)')
-    .in('session_id', sessionIds)
-
-  return aggregateCategoryScores(answers ?? [])
+  return sessions?.map((s) => s.id) ?? []
 }
 
 /**
- * Pure aggregation split out so it can be unit-tested without a database.
- * Each row is { is_correct, questions }, where the embedded `questions` may be
- * either a single object or a one-element array depending on how the query is
- * typed — both are handled here.
+ * Question ids this user has answered, optionally restricted to answers
+ * on/after `sinceDate`. With no date, returns every distinct question the
+ * user has ever answered (used for the "rule book coverage" stat). With a
+ * date, used to apply the repeat-cooldown discount at quiz-start.
  */
-export function aggregateCategoryScores(
-  answers: Array<{ is_correct: boolean; questions?: unknown }>
-): CategoryScores {
-  const scores: CategoryScores = {}
-  for (const a of answers) {
-    const rel = Array.isArray(a.questions) ? a.questions[0] : a.questions
-    const cat = (rel as { category?: string | null } | null | undefined)?.category ?? 'Unknown'
-    if (!scores[cat]) scores[cat] = { correct: 0, total: 0 }
-    scores[cat].total++
-    if (a.is_correct) scores[cat].correct++
-  }
-  return scores
+export async function getAnsweredQuestionIds(
+  supabase: SupabaseClient,
+  userId: string,
+  sinceDate?: Date
+): Promise<Set<string>> {
+  const sessionIds = await getSessionIds(supabase, userId)
+  if (sessionIds.length === 0) return new Set()
+
+  let query = supabase
+    .from('quiz_answers')
+    .select('question_id, answered_at')
+    .in('session_id', sessionIds)
+
+  if (sinceDate) query = query.gte('answered_at', sinceDate.toISOString())
+
+  const { data: answers } = await query
+  return new Set((answers ?? []).map((a) => a.question_id as string))
 }

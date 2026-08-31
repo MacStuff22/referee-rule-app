@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { LinkButton } from '@/components/ui/link-button'
 import type { SessionLength } from '@/types'
 
 const SESSION_OPTIONS: { length: SessionLength; label: string; description: string; count: string }[] = [
@@ -76,6 +77,11 @@ export default function QuizStartPage() {
       >
         {loading ? 'Building your quiz…' : 'Start Quiz'}
       </Button>
+
+      <p className="text-center text-sm text-gray-500">
+        Want to cover a set of questions by a deadline instead?{' '}
+        <LinkButton href="/paths" variant="link" className="px-0 h-auto">Set up a Study Plan</LinkButton>
+      </p>
     </div>
   )
 }

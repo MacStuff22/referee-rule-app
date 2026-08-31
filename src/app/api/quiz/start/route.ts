@@ -1,12 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { getCategoryScores } from '@/lib/quiz/performance'
+import { getAnsweredQuestionIds } from '@/lib/quiz/performance'
+import { weightForCategory, MASTERY_CONFIG, type CategoryMasteryRow } from '@/lib/quiz/mastery'
+import { weightedSampleWithoutReplacement } from '@/lib/quiz/sampling'
 import type { SessionLength } from '@/types'
 
 const SESSION_COUNTS: Record<SessionLength, number> = {
   quick: 7,
   standard: 17,
   full: 35,
+  path: 0, // path sessions are built by /api/quiz/paths/[pathId]/start instead
 }
 
 export async function POST(request: Request) {
@@ -27,45 +30,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No questions available' }, { status: 400 })
   }
 
-  // Get user's performance per category (shared with the dashboard)
-  const categoryScores = await getCategoryScores(supabase, user.id)
+  const now = new Date()
 
-  // Assign weight per question: weaker categories get higher weight
-  // New categories (never seen) get a medium weight of 0.5
+  // Mastery per category — recency-weighted, replaces lifetime accuracy.
+  const { data: masteryRows } = await supabase
+    .from('user_category_mastery')
+    .select('category, ema_score, total_answered, last_answered_at, refresh_interval_days')
+    .eq('user_id', user.id)
+
+  const masteryByCategory = new Map<string, CategoryMasteryRow>(
+    (masteryRows ?? []).map((r) => [r.category, r])
+  )
+
+  // Recently-seen questions get discounted so the same question doesn't
+  // resurface too soon, even from a category that's still weak overall.
+  const cooldownCutoff = new Date(now.getTime() - MASTERY_CONFIG.repeatCooldownDays * 86_400_000)
+  const recentlySeen = await getAnsweredQuestionIds(supabase, user.id, cooldownCutoff)
+
   const weighted = questions.map((q) => {
-    const score = categoryScores[q.category]
-    let weight: number
-    if (!score || score.total === 0) {
-      weight = 0.5
-    } else {
-      const pct = score.correct / score.total
-      // Invert: 0% correct → weight 1.0, 100% correct → weight 0.1
-      weight = Math.max(0.1, 1 - pct * 0.9)
-    }
+    let weight = weightForCategory(masteryByCategory.get(q.category), now)
+    if (recentlySeen.has(q.id)) weight *= MASTERY_CONFIG.repeatCooldownMultiplier
     return { id: q.id, weight }
   })
 
-  // Weighted random sample without replacement
-  const selected: string[] = []
-  const pool = [...weighted]
-  const maxCount = Math.min(targetCount, pool.length) // compute once — pool shrinks each iteration
-
-  while (selected.length < maxCount && pool.length > 0) {
-    const totalWeight = pool.reduce((sum, q) => sum + q.weight, 0)
-    let rand = Math.random() * totalWeight
-    let picked = -1
-    for (let i = 0; i < pool.length; i++) {
-      rand -= pool[i].weight
-      if (rand <= 0) { picked = i; break }
-    }
-    // Floating-point guard: if rand stayed above 0, take the last item
-    if (picked === -1) picked = pool.length - 1
-    selected.push(pool[picked].id)
-    pool.splice(picked, 1)
-  }
-
-  // Explicit dedup — should never fire, but guarantees uniqueness
-  const uniqueSelected = [...new Set(selected)]
+  const uniqueSelected = weightedSampleWithoutReplacement(weighted, targetCount)
 
   // Create session
   const { data: session, error } = await supabase

@@ -5,7 +5,19 @@ import { redirect } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LinkButton } from '@/components/ui/link-button'
-import { getCategoryScores } from '@/lib/quiz/performance'
+import { getAnsweredQuestionIds } from '@/lib/quiz/performance'
+import { classifyMastery, type MasteryStatus } from '@/lib/quiz/mastery'
+import { CATEGORIES } from '@/lib/constants'
+
+const STATUS_LABEL: Record<MasteryStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+  new: { label: 'New', variant: 'outline' },
+  learning: { label: 'Learning', variant: 'outline' },
+  developing: { label: 'Developing', variant: 'destructive' },
+  proficient: { label: 'Proficient', variant: 'secondary' },
+  mastered: { label: 'Mastered', variant: 'default' },
+}
+
+const STATUS_ORDER: MasteryStatus[] = ['developing', 'learning', 'proficient', 'mastered', 'new']
 
 export default async function DashboardPage() {
   const supabase = await createClient()
@@ -18,16 +30,23 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single()
 
-  // Performance per category (shared with the adaptive quiz builder)
-  const categoryScores = await getCategoryScores(supabase, user.id)
+  const { data: masteryRows } = await supabase
+    .from('user_category_mastery')
+    .select('category, ema_score, total_answered')
+    .eq('user_id', user.id)
 
-  const categories = Object.entries(categoryScores)
-    .map(([cat, stats]) => ({
-      category: cat,
-      percentage: Math.round((stats.correct / stats.total) * 100),
-      total: stats.total,
+  const categories = (masteryRows ?? [])
+    .map((r) => ({
+      category: r.category as string,
+      status: classifyMastery(r.total_answered, r.ema_score),
+      totalAnswered: r.total_answered as number,
     }))
-    .sort((a, b) => a.percentage - b.percentage)
+    .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status))
+
+  const [{ count: approvedCount }, answeredIds] = await Promise.all([
+    supabase.from('questions').select('id', { count: 'exact', head: true }).eq('is_approved', true),
+    getAnsweredQuestionIds(supabase, user.id),
+  ])
 
   return (
     <div className="space-y-6">
@@ -38,6 +57,19 @@ export default async function DashboardPage() {
         </div>
         <LinkButton href="/quiz">Start a Quiz</LinkButton>
       </div>
+
+      <Card>
+        <CardContent className="py-4 flex flex-wrap gap-x-8 gap-y-2 text-sm">
+          <div>
+            <p className="text-gray-400">Categories touched</p>
+            <p className="font-semibold text-gray-900">{categories.length} of {CATEGORIES.length}</p>
+          </div>
+          <div>
+            <p className="text-gray-400">Questions answered at least once</p>
+            <p className="font-semibold text-gray-900">{answeredIds.size} of {approvedCount ?? 0}</p>
+          </div>
+        </CardContent>
+      </Card>
 
       {categories.length === 0 ? (
         <Card>
@@ -56,23 +88,11 @@ export default async function DashboardPage() {
                 <CardHeader className="pb-2 pt-4 px-4">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-medium">{c.category}</CardTitle>
-                    <Badge
-                      variant={c.percentage >= 80 ? 'default' : c.percentage >= 60 ? 'secondary' : 'destructive'}
-                    >
-                      {c.percentage}%
-                    </Badge>
+                    <Badge variant={STATUS_LABEL[c.status].variant}>{STATUS_LABEL[c.status].label}</Badge>
                   </div>
                 </CardHeader>
                 <CardContent className="px-4 pb-4">
-                  <div className="w-full bg-gray-100 rounded-full h-2">
-                    <div
-                      className={`h-2 rounded-full ${
-                        c.percentage >= 80 ? 'bg-green-500' : c.percentage >= 60 ? 'bg-yellow-500' : 'bg-red-500'
-                      }`}
-                      style={{ width: `${c.percentage}%` }}
-                    />
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1">{c.total} questions answered</p>
+                  <p className="text-xs text-gray-400">{c.totalAnswered} questions answered</p>
                 </CardContent>
               </Card>
             ))}

@@ -24,11 +24,13 @@ export default function Nav({ profile }: NavProps) {
   const links = [
     { href: '/dashboard', label: 'Dashboard' },
     { href: '/quiz', label: 'Take a Quiz' },
+    { href: '/paths', label: 'Study Plans' },
     { href: '/rules', label: 'Rule Comparison' },
     ...(profile.role === 'admin'
       ? [
           { href: '/admin/questions', label: 'Questions' },
           { href: '/admin/users', label: 'Users' },
+          { href: '/admin/analytics', label: 'Analytics' },
           { href: '/admin/test-quiz', label: 'Test Quiz' },
         ]
       : []),

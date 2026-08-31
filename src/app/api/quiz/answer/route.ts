@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { scoreAnswer } from '@/lib/quiz/scoring'
+import { classifyMastery, updateEma, nextRefreshInterval, MASTERY_CONFIG } from '@/lib/quiz/mastery'
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -40,6 +41,11 @@ export async function POST(request: Request) {
   // the client's own belief about correctness is never read or trusted.
   const isCorrect = scoreAnswer(question, selectedAnswers)
 
+  // No response-time column on purpose: elapsed time per question is
+  // already derivable later from answered_at deltas within a session (or
+  // started_at for the first question) if a future pass wants it — see
+  // the Quiz Path / mastery build spec's notes on why raw seconds aren't
+  // safe to weight on directly (question types vary a lot in length).
   const { error } = await supabase.from('quiz_answers').insert({
     session_id: sessionId,
     question_id: questionId,
@@ -54,6 +60,33 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
+
+  // Best-effort: update this user's recency-weighted mastery for the
+  // question's category. Never blocks or fails the answer submission itself.
+  const { data: existingMastery } = await supabase
+    .from('user_category_mastery')
+    .select('ema_score, total_answered, refresh_interval_days')
+    .eq('user_id', user.id)
+    .eq('category', question.category)
+    .maybeSingle()
+
+  const priorEma = existingMastery?.ema_score ?? 0.5
+  const priorTotal = existingMastery?.total_answered ?? 0
+  const priorInterval = existingMastery?.refresh_interval_days ?? MASTERY_CONFIG.baseRefreshIntervalDays
+  const wasMastered = classifyMastery(priorTotal, priorEma) === 'mastered'
+
+  await supabase.from('user_category_mastery').upsert(
+    {
+      user_id: user.id,
+      category: question.category,
+      ema_score: updateEma(priorEma, isCorrect),
+      total_answered: priorTotal + 1,
+      last_answered_at: new Date().toISOString(),
+      refresh_interval_days: wasMastered ? nextRefreshInterval(priorInterval, isCorrect) : priorInterval,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id,category' }
+  )
 
   return NextResponse.json({ isCorrect })
 }
