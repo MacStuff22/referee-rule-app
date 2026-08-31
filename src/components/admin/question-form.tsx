@@ -96,7 +96,7 @@ interface SubQuestionDraft {
 }
 
 function emptySubQuestion(): SubQuestionDraft {
-  return { text: '', answer_type: 'multiple_choice', options: ['', ''], correct_answers: [], rationale: '' }
+  return { text: '', answer_type: 'multiple_choice', options: ['', '', '', ''], correct_answers: [], rationale: '' }
 }
 
 function toSubDraft(sq: SubQuestion): SubQuestionDraft {
@@ -171,7 +171,7 @@ export default function QuestionForm({ question }: Props) {
   const [saving, setSaving] = useState(false)
 
   // Standard question fields
-  const [options, setOptions] = useState<string[]>(question?.options?.length ? question.options : ['', ''])
+  const [options, setOptions] = useState<string[]>(question?.options?.length ? question.options : ['', '', '', ''])
   const [correctAnswers, setCorrectAnswers] = useState<number[]>(question?.correct_answers ?? [])
   const [rationale, setRationale] = useState(question?.rationale ?? '')
 
@@ -546,7 +546,7 @@ export default function QuestionForm({ question }: Props) {
                   const seeded: SubQuestionDraft = {
                     text: '',
                     answer_type: mode === 'multiple_choice' || mode === 'multi_select' ? mode : 'multiple_choice',
-                    options: options.length ? [...options] : ['', ''],
+                    options: options.length ? [...options] : ['', '', '', ''],
                     correct_answers: [...correctAnswers],
                     rationale,
                   }
