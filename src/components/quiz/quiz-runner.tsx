@@ -348,6 +348,11 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
               <p className="text-sm text-gray-500">
                 <span className="font-medium">📋 Rule {question.rule_number}</span>
               </p>
+              {question.situation_id && (
+                <p className="text-sm text-gray-500">
+                  <span className="font-medium">📍 Situation {question.situation_id}</span>
+                </p>
+              )}
             </CardContent>
           </Card>
         )}
@@ -408,6 +413,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
           situationType={config.situation_type}
           rationale={question.rationale}
           ruleNumber={question.rule_number}
+          situationId={question.situation_id}
           revealAnswer
           onSubmit={saveScoreboardAnswer}
           onNext={onNext}
@@ -494,6 +500,11 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
             <p className="text-sm text-gray-500">
               <span className="font-medium">📋 Rule {question.rule_number}</span>
             </p>
+            {question.situation_id && (
+              <p className="text-sm text-gray-500">
+                <span className="font-medium">📍 Situation {question.situation_id}</span>
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

@@ -41,6 +41,7 @@ export interface ScoreboardSimulatorProps {
   situationType?: ScoreboardSituationType
   rationale?: string
   ruleNumber?: string
+  situationId?: string
   /** Show the correct time next to a missed answer after submitting (live quiz). */
   revealAnswer?: boolean
   /** Offer Replay / Reset (admin preview). */
@@ -65,6 +66,7 @@ export function ScoreboardSimulator({
   situationType = 'expiration',
   rationale,
   ruleNumber,
+  situationId,
   revealAnswer = false,
   allowReplay = false,
   onSubmit,
@@ -486,6 +488,11 @@ export function ScoreboardSimulator({
                 {ruleNumber && (
                   <p className="text-sm text-gray-500">
                     <span className="font-medium">📋 Rule {ruleNumber}</span>
+                  </p>
+                )}
+                {situationId && (
+                  <p className="text-sm text-gray-500">
+                    <span className="font-medium">📍 Situation {situationId}</span>
                   </p>
                 )}
               </CardContent>

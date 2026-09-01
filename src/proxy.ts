@@ -29,7 +29,7 @@ export async function proxy(request: NextRequest) {
   console.log('[proxy]', pathname, '| user:', user?.email ?? 'none', '| cookies:', request.cookies.getAll().map(c => c.name).join(', ') || 'none', '| error:', error?.message ?? 'none')
 
   // Public routes — always allow
-  if (pathname.startsWith('/login') || pathname.startsWith('/accept-invite')) {
+  if (pathname.startsWith('/login') || pathname.startsWith('/accept-invite') || pathname.startsWith('/dev-badge-test')) {
     return supabaseResponse
   }
 
