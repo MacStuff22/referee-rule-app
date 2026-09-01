@@ -17,8 +17,8 @@ const PACE_LABEL: Record<string, { label: string; variant: 'default' | 'secondar
 
 const POOL_LABEL: Record<string, string> = {
   situation_book: 'Situation Book',
-  categories: 'Selected Categories',
-  weak_areas: 'Auto Weak-Areas',
+  categories: 'Selected Rules',
+  weak_areas: 'Weaknesses',
 }
 
 interface Props {

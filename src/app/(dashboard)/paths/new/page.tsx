@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,20 +8,27 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { CATEGORIES } from '@/lib/constants'
+import { computeQuestionsPerDay } from '@/lib/quiz/paths'
 import type { PathPoolFilter } from '@/types'
 
 type PoolType = PathPoolFilter['type']
 
 const POOL_OPTIONS: { type: PoolType; label: string; description: string }[] = [
-  { type: 'situation_book', label: 'Situation Book', description: 'Every approved question tied to a Situation Handbook entry.' },
-  { type: 'categories', label: 'Choose Categories', description: 'Pick specific rule-book categories to focus a plan on.' },
-  { type: 'weak_areas', label: 'Auto Weak-Areas', description: "Built automatically from your current weakest categories." },
+  { type: 'situation_book', label: 'Situation Book', description: 'Complete all questions listed in the NHL Situation Book' },
+  { type: 'categories', label: 'Choose Rules', description: 'Choose specific rules to quiz yourself on' },
+  { type: 'weak_areas', label: 'Weaknesses', description: 'Automatically selected rules that have been identified as your rulebook weak areas.' },
 ]
 
 function defaultEndDate(): string {
   const d = new Date()
   d.setDate(d.getDate() + 90)
   return d.toISOString().slice(0, 10)
+}
+
+function poolFilterFor(poolType: PoolType, selectedCategories: string[]): PathPoolFilter {
+  if (poolType === 'categories') return { type: 'categories', categories: selectedCategories }
+  if (poolType === 'weak_areas') return { type: 'weak_areas', categories: [] }
+  return { type: 'situation_book' }
 }
 
 export default function NewPathPage() {
@@ -32,6 +39,8 @@ export default function NewPathPage() {
   const [paceMode, setPaceMode] = useState<'end_date' | 'daily_count'>('end_date')
   const [targetEndDate, setTargetEndDate] = useState(defaultEndDate())
   const [questionsPerDay, setQuestionsPerDay] = useState(10)
+  const [poolSize, setPoolSize] = useState<number | null>(null)
+  const [poolSizeLoading, setPoolSizeLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
@@ -39,7 +48,7 @@ export default function NewPathPage() {
   function selectPoolType(type: PoolType) {
     setPoolType(type)
     if (type === 'situation_book') setName('Situation Book Plan')
-    else if (type === 'weak_areas') setName('Weak Areas Plan')
+    else if (type === 'weak_areas') setName('Weaknesses Plan')
     else setName('Custom Plan')
   }
 
@@ -48,6 +57,41 @@ export default function NewPathPage() {
       prev.includes(category) ? prev.filter((c) => c !== category) : [...prev, category]
     )
   }
+
+  useEffect(() => {
+    if (poolType === 'categories' && selectedCategories.length === 0) {
+      setPoolSize(null)
+      return
+    }
+
+    let cancelled = false
+    setPoolSizeLoading(true)
+
+    fetch('/api/quiz/paths/pool-size', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ poolFilter: poolFilterFor(poolType, selectedCategories) }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!cancelled) setPoolSize(typeof data.poolSize === 'number' ? data.poolSize : null)
+      })
+      .catch(() => {
+        if (!cancelled) setPoolSize(null)
+      })
+      .finally(() => {
+        if (!cancelled) setPoolSizeLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [poolType, selectedCategories])
+
+  const questionsPerDayPreview =
+    paceMode === 'end_date' && poolSize && poolSize > 0 && targetEndDate
+      ? computeQuestionsPerDay(poolSize, new Date(), new Date(targetEndDate), daysPerWeek)
+      : null
 
   async function createPlan() {
     setError(null)
@@ -58,12 +102,7 @@ export default function NewPathPage() {
 
     setLoading(true)
 
-    const poolFilter: PathPoolFilter =
-      poolType === 'categories'
-        ? { type: 'categories', categories: selectedCategories }
-        : poolType === 'weak_areas'
-          ? { type: 'weak_areas', categories: [] }
-          : { type: 'situation_book' }
+    const poolFilter = poolFilterFor(poolType, selectedCategories)
 
     const pace = paceMode === 'end_date' ? { targetEndDate } : { questionsPerDay }
 
@@ -131,20 +170,8 @@ export default function NewPathPage() {
         <Input id="plan-name" value={name} onChange={(e) => setName(e.target.value)} />
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="days-per-week">Days per week you&apos;ll study</Label>
-        <Input
-          id="days-per-week"
-          type="number"
-          min={1}
-          max={7}
-          value={daysPerWeek}
-          onChange={(e) => setDaysPerWeek(Math.min(7, Math.max(1, Number(e.target.value) || 1)))}
-        />
-      </div>
-
       <div className="space-y-3">
-        <Label>Pace</Label>
+        <Label>Study Plan Frequency</Label>
         <Tabs value={paceMode} onValueChange={(v) => setPaceMode(v as 'end_date' | 'daily_count')}>
           <TabsList>
             <TabsTrigger value="end_date">Pick a finish date</TabsTrigger>
@@ -152,7 +179,6 @@ export default function NewPathPage() {
           </TabsList>
           <TabsContent value="end_date" className="pt-3">
             <Input type="date" value={targetEndDate} onChange={(e) => setTargetEndDate(e.target.value)} />
-            <p className="text-xs text-gray-400 mt-1">We&apos;ll figure out how many questions per day that takes.</p>
           </TabsContent>
           <TabsContent value="daily_count" className="pt-3">
             <Input
@@ -164,6 +190,32 @@ export default function NewPathPage() {
             <p className="text-xs text-gray-400 mt-1">We&apos;ll figure out your finish date from this pace.</p>
           </TabsContent>
         </Tabs>
+
+        <div className="space-y-2 pt-1">
+          <Label htmlFor="days-per-week">Days per week you&apos;ll study</Label>
+          <Input
+            id="days-per-week"
+            type="number"
+            min={1}
+            max={7}
+            value={daysPerWeek}
+            onChange={(e) => setDaysPerWeek(Math.min(7, Math.max(1, Number(e.target.value) || 1)))}
+          />
+        </div>
+
+        {paceMode === 'end_date' && (
+          <p className="text-sm text-gray-600 pt-1">
+            {poolSizeLoading ? (
+              'Calculating your daily pace…'
+            ) : questionsPerDayPreview !== null ? (
+              <>Number of questions per study day: <span className="font-semibold text-gray-900">{questionsPerDayPreview}</span></>
+            ) : poolSize === 0 ? (
+              'No questions currently match this plan yet.'
+            ) : (
+              'Choose what this plan covers to see your daily pace.'
+            )}
+          </p>
+        )}
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
