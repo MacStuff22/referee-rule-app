@@ -45,6 +45,8 @@ export interface QuizRunnerProps {
   nextLabel: string
   /** Lets the user leave before finishing. Answers already submitted stay recorded; the parent decides what "leaving" means (end the session and show results, or return to setup). Omit to hide the exit control entirely. */
   onExit?: () => void
+  /** Shows the league/category/rule badges above the progress bar — useful for the admin's Test Quiz preview, noise for a real user taking the quiz. Defaults to hidden. */
+  showMeta?: boolean
 }
 
 function PenaltyTableBlock({ penA, penB }: { penA: any[]; penB: any[] }) {
@@ -112,7 +114,7 @@ function shuffleIndices(count: number): number[] {
   return arr
 }
 
-export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, onExit }: QuizRunnerProps) {
+export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, onExit, showMeta = false }: QuizRunnerProps) {
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
@@ -215,11 +217,13 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
       )}
       <div className="flex items-center justify-between text-sm text-gray-500">
         <span>Question {progress.current} of {progress.total}</span>
-        <div className="flex gap-2">
-          <Badge variant="outline">{question.league}</Badge>
-          <Badge variant="outline">{question.category}</Badge>
-          <Badge variant="outline">Rule {question.rule_number}</Badge>
-        </div>
+        {showMeta && (
+          <div className="flex gap-2">
+            <Badge variant="outline">{question.league}</Badge>
+            <Badge variant="outline">{question.category}</Badge>
+            <Badge variant="outline">Rule {question.rule_number}</Badge>
+          </div>
+        )}
       </div>
       <div className="w-full bg-gray-100 rounded-full h-1.5">
         <div

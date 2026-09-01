@@ -96,6 +96,7 @@ export default function TestQuizClient({ questions }: { questions: Question[] })
       onNext={handleNext}
       onExit={handleExit}
       nextLabel={isLastQuestion ? 'Finish Test Quiz' : 'Next Question →'}
+      showMeta
     />
   )
 }
