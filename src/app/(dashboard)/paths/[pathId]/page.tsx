@@ -5,15 +5,9 @@ import { redirect } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LinkButton } from '@/components/ui/link-button'
-import { getPathProgress } from '@/lib/quiz/pathProgress'
+import { getPathProgress, PACE_LABEL } from '@/lib/quiz/pathProgress'
 import { StartPathSessionButton } from '@/components/quiz/start-path-session-button'
 import type { QuizPath } from '@/types'
-
-const PACE_LABEL: Record<string, { label: string; variant: 'default' | 'secondary' | 'destructive' }> = {
-  ahead: { label: 'Ahead of pace', variant: 'default' },
-  'on-track': { label: 'On track', variant: 'secondary' },
-  behind: { label: 'Behind pace', variant: 'destructive' },
-}
 
 const POOL_LABEL: Record<string, string> = {
   situation_book: 'Situation Book',

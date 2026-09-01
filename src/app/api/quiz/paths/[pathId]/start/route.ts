@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { weightForCategory, MASTERY_CONFIG, type CategoryMasteryRow } from '@/lib/quiz/mastery'
 import { remainingScheduledDays, reflowPace, reservedCoverageSlots, computeTargetEndDate } from '@/lib/quiz/paths'
+import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
 import { weightedSampleWithoutReplacement } from '@/lib/quiz/sampling'
 
 function shuffle<T>(items: T[]): T[] {
@@ -51,14 +52,15 @@ export async function POST(request: Request, { params }: Params) {
   // to currently-approved questions lets the pool self-heal if a question
   // is later unapproved, instead of getting permanently stuck as uncovered.
   const poolIds: string[] = path.pool_question_ids
-  const { data: liveQuestions } = await supabase
-    .from('questions')
-    .select('id, category')
-    .eq('is_approved', true)
-    .in('id', poolIds)
+  let liveQuestions
+  try {
+    liveQuestions = await fetchLivePoolQuestions(supabase, poolIds)
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Could not load this plan\'s questions.' }, { status: 500 })
+  }
 
-  const categoryById = new Map((liveQuestions ?? []).map((q) => [q.id, q.category as string]))
-  const livePoolIds = (liveQuestions ?? []).map((q) => q.id)
+  const categoryById = new Map(liveQuestions.map((q) => [q.id, q.category]))
+  const livePoolIds = liveQuestions.map((q) => q.id)
 
   const { data: completedSessions } = await supabase
     .from('quiz_sessions')

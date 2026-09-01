@@ -12,21 +12,26 @@ export function StartPathSessionButton({ pathId, questionsPerDay }: { pathId: st
   async function start() {
     setLoading(true)
     setError(null)
-    const response = await fetch(`/api/quiz/paths/${pathId}/start`, { method: 'POST' })
-    const data = await response.json()
+    try {
+      const response = await fetch(`/api/quiz/paths/${pathId}/start`, { method: 'POST' })
+      const data = await response.json()
 
-    if (!response.ok) {
-      setError(data.error ?? 'Could not start today\'s questions.')
+      if (!response.ok) {
+        setError(data.error ?? 'Could not start today\'s questions.')
+        setLoading(false)
+        return
+      }
+
+      if (data.completed) {
+        router.refresh()
+        return
+      }
+
+      router.push(`/quiz/${data.sessionId}`)
+    } catch {
+      setError('Could not start today\'s questions. Check your connection and try again.')
       setLoading(false)
-      return
     }
-
-    if (data.completed) {
-      router.refresh()
-      return
-    }
-
-    router.push(`/quiz/${data.sessionId}`)
   }
 
   return (
