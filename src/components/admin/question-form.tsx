@@ -235,6 +235,80 @@ export default function QuestionForm({ question }: Props) {
     )
   }, [sbEvents, mode])
 
+  // ── Unsaved-changes guard ────────────────────────────────────────────────
+  // Snapshots raw form state (not the cleaned save payload) so a change is
+  // caught the moment it happens, regardless of question type. The initial
+  // snapshot is captured via useState's lazy initializer, which only ever
+  // runs on the very first render — exactly what each field's own useState
+  // initializer produced, with nothing to keep in sync by hand.
+  function formSnapshot() {
+    return JSON.stringify({
+      mode, text, ruleRefs, handbookSection, situationId, league, category, isApproved,
+      options, correctAnswers, rationale, penaltyA, penaltyB, subQuestions,
+      sbSituationType, sbPeriod, sbStartGT, sbEvents, sbPlayerAnswers,
+    })
+  }
+  const [initialSnapshot] = useState(() => formSnapshot())
+  const isDirty = initialSnapshot !== formSnapshot()
+
+  // Refs so the popstate/beforeunload listeners (attached once) always read
+  // the latest values without needing to resubscribe on every change.
+  const isDirtyRef = useRef(isDirty)
+  const backUrlRef = useRef(backUrl)
+  useEffect(() => {
+    isDirtyRef.current = isDirty
+    backUrlRef.current = backUrl
+  }, [isDirty, backUrl])
+
+  const UNSAVED_CHANGES_MESSAGE = 'You have unsaved changes to this question. Leave without saving?'
+
+  function confirmLeave(): boolean {
+    return !isDirty || window.confirm(UNSAVED_CHANGES_MESSAGE)
+  }
+
+  // Tab close / refresh / typing a new URL — browser's own generic prompt.
+  useEffect(() => {
+    function handleBeforeUnload(e: BeforeUnloadEvent) {
+      if (!isDirtyRef.current) return
+      e.preventDefault()
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [])
+
+  // Browser back/forward button. Pressing back normally leaves the page before
+  // React ever gets a say, so a sentinel history entry is pushed once the form
+  // goes dirty — that entry absorbs the first back press as a popstate event
+  // we can intercept and confirm, instead of a real navigation.
+  const sentinelPushedRef = useRef(false)
+  useEffect(() => {
+    if (isDirty && !sentinelPushedRef.current) {
+      sentinelPushedRef.current = true
+      window.history.pushState(null, '', window.location.href)
+    }
+  }, [isDirty])
+
+  useEffect(() => {
+    function handlePopState() {
+      if (!isDirtyRef.current) return
+      if (window.confirm(UNSAVED_CHANGES_MESSAGE)) {
+        // A hard navigation, not router.push — Next's own popstate handling
+        // fires on this same event and reliably wins a race against a
+        // client-side push issued from inside a popstate handler.
+        window.location.href = backUrlRef.current
+      } else {
+        window.history.pushState(null, '', window.location.href)
+      }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [router])
+
+  function handleCancel() {
+    if (confirmLeave()) router.push(backUrl)
+  }
+
   // ── Standard question helpers ─────────────────────────────────────────────
 
   function updateOption(i: number, val: string) {
@@ -1355,7 +1429,7 @@ export default function QuestionForm({ question }: Props) {
             {saving ? 'Saving…' : 'Save & Next →'}
           </Button>
         )}
-        <Button variant="outline" onClick={() => router.push(backUrl)}>Cancel</Button>
+        <Button variant="outline" onClick={handleCancel}>Cancel</Button>
         {question?.id && (
           <Button variant="destructive" onClick={deleteQuestion}>Delete</Button>
         )}
