@@ -14,7 +14,7 @@ import { HANDBOOK_SECTIONS, CATEGORIES } from '@/lib/constants'
 import { PENALTY_DISPLAY, parseGameTime, formatGT, gtSecondsValid, maskGameTime } from '@/lib/scoreboard'
 import { PENALTY_TABLE_MARKER, hasPenaltyTableMarker } from '@/lib/penaltyTable'
 import type { SinglePenalty } from '@/types/scoreboard'
-import type { Question, SubQuestion } from '@/types'
+import type { League, Question, SubQuestion } from '@/types'
 
 const AutoResizeTextarea = forwardRef<HTMLTextAreaElement, {
   value: string
@@ -164,7 +164,10 @@ export default function QuestionForm({ question }: Props) {
   )
   const [handbookSection, setHandbookSection] = useState(question?.handbook_section ?? '')
   const [situationId, setSituationId] = useState(question?.situation_id ?? '')
-  const [league, setLeague] = useState<'NHL' | 'AHL' | 'both'>(question?.league ?? 'both')
+  const [league, setLeague] = useState<League[]>(question?.league ?? ['NHL', 'AHL'])
+  function toggleLeague(l: League) {
+    setLeague((prev) => (prev.includes(l) ? prev.filter((x) => x !== l) : [...prev, l]))
+  }
   const [category, setCategory] = useState(question?.category ?? '')
   const [isApproved, setIsApproved] = useState(question?.is_approved ?? false)
   const [error, setError] = useState('')
@@ -443,6 +446,7 @@ export default function QuestionForm({ question }: Props) {
     if (!text.trim()) { setError('Situation / question text is required.'); return false }
     if (!category) { setError('Category is required.'); return false }
     if (!handbookSection) { setError('Handbook section is required.'); return false }
+    if (league.length === 0) { setError('Select at least one league.'); return false }
 
     const filledRefs = ruleRefs.filter((r) => r.trim())
 
@@ -1390,15 +1394,19 @@ export default function QuestionForm({ question }: Props) {
         </div>
         <div className="space-y-2">
           <Label>League</Label>
-          <select
-            className="w-full border rounded-md px-3 py-2 text-sm"
-            value={league}
-            onChange={(e) => setLeague(e.target.value as 'NHL' | 'AHL' | 'both')}
-          >
-            <option value="both">Both (NHL & AHL)</option>
-            <option value="NHL">NHL only</option>
-            <option value="AHL">AHL only</option>
-          </select>
+          <div className="flex gap-4 h-9 items-center">
+            {(['NHL', 'AHL'] as const).map((l) => (
+              <label key={l} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={league.includes(l)}
+                  onChange={() => toggleLeague(l)}
+                  className="h-4 w-4"
+                />
+                {l}
+              </label>
+            ))}
+          </div>
         </div>
       </div>
 

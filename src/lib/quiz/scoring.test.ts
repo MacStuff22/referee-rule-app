@@ -15,7 +15,7 @@ function baseQuestion(overrides: Partial<Question>): Question {
     rule_references: [],
     handbook_section: '',
     situation_id: '',
-    league: 'both',
+    league: ['NHL', 'AHL'],
     category: '',
     question_type: 'situation',
     sub_questions: [],

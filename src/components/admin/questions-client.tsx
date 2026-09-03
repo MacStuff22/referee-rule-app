@@ -245,7 +245,7 @@ export default function QuestionsClient({ questions }: Props) {
                   {q.handbook_section && (
                     <span className="text-xs text-gray-400">{q.handbook_section}</span>
                   )}
-                  <Badge variant="secondary" className="text-xs">{q.league}</Badge>
+                  <Badge variant="secondary" className="text-xs">{q.league.join(' & ')}</Badge>
                 </div>
               </div>
               <LinkButton href={`/admin/questions/${q.id}`} variant="ghost" size="sm" className="shrink-0">Edit</LinkButton>

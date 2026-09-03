@@ -1,5 +1,5 @@
 export type UserRole = 'admin' | 'user'
-export type League = 'NHL' | 'AHL' | 'both'
+export type League = 'NHL' | 'AHL'
 export type QuestionType = 'situation' | 'written' | 'compound' | 'scoreboard'
 export type AnswerType = 'multiple_choice' | 'multi_select'
 export type SessionLength = 'quick' | 'standard' | 'full' | 'path'
@@ -42,7 +42,7 @@ export interface Question {
   rule_references: string[]
   handbook_section: string
   situation_id: string
-  league: League
+  league: League[]
   category: string
   question_type: QuestionType
   sub_questions: SubQuestion[] // populated only when question_type === 'compound'

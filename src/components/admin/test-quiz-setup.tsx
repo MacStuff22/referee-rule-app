@@ -120,12 +120,7 @@ export function TestQuizSetup({ questions, onStart }: Props) {
       if (handbookSection && q.handbook_section !== handbookSection) return false
       if (situationId && q.situation_id !== situationId) return false
       if (category && q.category !== category) return false
-      if (league) {
-        // A question marked "both" counts toward NHL and AHL, but selecting
-        // "Both" itself should only match questions marked exactly "both".
-        const matchesLeague = q.league === league || (league !== 'both' && q.league === 'both')
-        if (!matchesLeague) return false
-      }
+      if (league && !q.league.includes(league)) return false
       if (features.size > 0 && !QUESTION_FEATURES.some((f) => features.has(f.id) && f.matches(q))) return false
       if (search) {
         const s = search.toLowerCase()
@@ -298,7 +293,6 @@ export function TestQuizSetup({ questions, onStart }: Props) {
               <option value="">All Leagues</option>
               <option value="NHL">NHL</option>
               <option value="AHL">AHL</option>
-              <option value="both">Both</option>
             </select>
           </div>
 
@@ -361,7 +355,7 @@ export function TestQuizSetup({ questions, onStart }: Props) {
                     )}
                     <Badge variant="outline" className="text-xs">{QUESTION_MODE_LABELS[getQuestionMode(q)]}</Badge>
                     <Badge variant="outline" className="text-xs">{q.category}</Badge>
-                    <Badge variant="secondary" className="text-xs">{q.league}</Badge>
+                    <Badge variant="secondary" className="text-xs">{q.league.join(' & ')}</Badge>
                   </div>
                 </div>
               </label>

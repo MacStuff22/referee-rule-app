@@ -219,7 +219,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
         <span>Question {progress.current} of {progress.total}</span>
         {showMeta && (
           <div className="flex gap-2">
-            <Badge variant="outline">{question.league}</Badge>
+            <Badge variant="outline">{question.league.join(' & ')}</Badge>
             <Badge variant="outline">{question.category}</Badge>
             <Badge variant="outline">Rule {question.rule_number}</Badge>
           </div>
