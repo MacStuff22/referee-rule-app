@@ -16,6 +16,7 @@
 // ============================================================
 
 import { useState } from 'react'
+import { Check, ListChecks } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -114,9 +115,22 @@ function shuffleIndices(count: number): number[] {
   return arr
 }
 
+function MultiSelectHint() {
+  return (
+    <span className="inline-flex items-center gap-1.5 mb-4 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">
+      <ListChecks className="h-3.5 w-3.5" />
+      Select all that apply
+    </span>
+  )
+}
+
 export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, onExit, showMeta = false }: QuizRunnerProps) {
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  // Confirmation gate for submitting a multi-select question with only one option checked
+  const [confirmSingleOpen, setConfirmSingleOpen] = useState(false)
+  const [pendingSubmit, setPendingSubmit] = useState<null | (() => void)>(null)
 
   // Standard question state
   const [selected, setSelected] = useState<number[]>([])
@@ -152,10 +166,67 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
     }
   }
 
+  // ─── Shared option-list rendering (standard + compound both call this) ──────
+
+  function renderOptions(options: string[], correctAnswers: number[], order: number[], isMultiSelect: boolean) {
+    return (
+      <div className="space-y-2 mt-3" role="group" aria-label={isMultiSelect ? 'Select all that apply' : 'Select one answer'}>
+        {order.map((originalIdx, displayIdx) => {
+          const opt = options[originalIdx]
+          const isSelected = selected.includes(originalIdx)
+          const isCorrect = correctAnswers.includes(originalIdx)
+          let style = 'border-gray-200 bg-white hover:border-gray-300'
+          let glyphStyle = 'border-gray-400 bg-white'
+          const glyphFilled = isSelected || (answerState !== 'unanswered' && isCorrect)
+
+          if (answerState !== 'unanswered') {
+            if (isCorrect) {
+              style = 'border-green-500 bg-green-50 text-green-900'
+              glyphStyle = 'bg-green-600 border-green-600'
+            } else if (isSelected && !isCorrect) {
+              style = 'border-red-400 bg-red-50 text-red-900'
+              glyphStyle = 'bg-red-500 border-red-500'
+            } else {
+              glyphStyle = 'border-gray-300 bg-white'
+            }
+          } else if (isSelected) {
+            style = 'border-slate-900 bg-slate-50'
+            glyphStyle = 'bg-slate-900 border-slate-900'
+          }
+
+          return (
+            <button
+              key={originalIdx}
+              onClick={() => toggleOption(originalIdx)}
+              disabled={answerState !== 'unanswered'}
+              role={isMultiSelect ? 'checkbox' : 'radio'}
+              aria-checked={isSelected}
+              className={`w-full text-left px-4 py-3 rounded-lg border-2 text-sm transition-all flex items-center gap-3 ${style}`}
+            >
+              <span
+                aria-hidden="true"
+                className={`shrink-0 flex items-center justify-center w-4 h-4 border-2 ${isMultiSelect ? 'rounded' : 'rounded-full'} ${glyphStyle}`}
+              >
+                {glyphFilled && (isMultiSelect ? (
+                  <Check className="h-3 w-3 text-white" strokeWidth={3} />
+                ) : (
+                  <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                ))}
+              </span>
+              <span>
+                <span className="font-medium mr-2">{String.fromCharCode(65 + displayIdx)}.</span>
+                {renderOptionText(opt)}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
   // ─── Standard question submit ───────────────────────────────────────────────
 
-  async function submitAnswer() {
-    if (selected.length === 0 || submitting) return
+  async function doSubmitAnswer() {
     setSubmitting(true)
     try {
       const result = await onAnswered(selected)
@@ -165,14 +236,23 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
     }
   }
 
+  function submitAnswer() {
+    if (selected.length === 0 || submitting) return
+    if (question.answer_type === 'multi_select' && selected.length === 1 && question.correct_answers.length > 1) {
+      setPendingSubmit(() => doSubmitAnswer)
+      setConfirmSingleOpen(true)
+      return
+    }
+    doSubmitAnswer()
+  }
+
   // ─── Compound question submit ───────────────────────────────────────────────
 
-  async function submitCompoundAnswer() {
+  function doSubmitCompoundAnswer() {
     // Per-part reveal stays local -- it's already visible information
     // (sub_questions[i].correct_answers is part of the fetched question),
     // not the security boundary. Only the final persisted row's is_correct
     // is decided by the parent (server-verified for the real quiz).
-    if (selected.length === 0) return
     const subQ = question.sub_questions[compoundSubIndex]
     const sortedSelected = [...selected].sort()
     const sortedCorrect = [...subQ.correct_answers].sort()
@@ -184,8 +264,19 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
     setCompoundSubCorrect(newSubCorrect)
     const isLastSubQ = compoundSubIndex === question.sub_questions.length - 1
     if (isLastSubQ) {
-      await onAnswered(encodeCompoundAnswer(newSubAnswers))
+      onAnswered(encodeCompoundAnswer(newSubAnswers))
     }
+  }
+
+  function submitCompoundAnswer() {
+    if (selected.length === 0) return
+    const subQ = question.sub_questions[compoundSubIndex]
+    if (subQ.answer_type === 'multi_select' && selected.length === 1 && subQ.correct_answers.length > 1) {
+      setPendingSubmit(() => doSubmitCompoundAnswer)
+      setConfirmSingleOpen(true)
+      return
+    }
+    doSubmitCompoundAnswer()
   }
 
   function advanceSubQuestion() {
@@ -251,6 +342,24 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
     </Dialog>
   ) : null
 
+  const confirmSingleDialog = (
+    <Dialog open={confirmSingleOpen} onOpenChange={setConfirmSingleOpen}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Submit with just one answer?</DialogTitle>
+          <DialogDescription>
+            This question allows more than one correct answer, and you&apos;ve only selected one.
+            You can go back and review, or submit as-is.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => setConfirmSingleOpen(false)}>Review answers</Button>
+          <Button onClick={() => { setConfirmSingleOpen(false); pendingSubmit?.() }}>Submit anyway</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+
   // ─── Compound question render ────────────────────────────────────────────────
 
   if (question.question_type === 'compound') {
@@ -305,34 +414,8 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
         <Card>
           <CardContent className="pt-6">
             <p className="font-medium text-gray-900 text-base leading-relaxed mb-1">{subQ.text}</p>
-            {subQ.answer_type === 'multi_select' && (
-              <p className="text-xs text-gray-400 mb-4">Select all that apply</p>
-            )}
-            <div className="space-y-2 mt-3">
-              {shuffleOrder.map((originalIdx: number, displayIdx: number) => {
-                const opt = subQ.options[originalIdx]
-                const isSelected = selected.includes(originalIdx)
-                const isCorrect = subQ.correct_answers.includes(originalIdx)
-                let style = 'border-gray-200 bg-white hover:border-gray-300'
-                if (answerState !== 'unanswered') {
-                  if (isCorrect) style = 'border-green-500 bg-green-50 text-green-900'
-                  else if (isSelected && !isCorrect) style = 'border-red-400 bg-red-50 text-red-900'
-                } else if (isSelected) {
-                  style = 'border-slate-900 bg-slate-50'
-                }
-                return (
-                  <button
-                    key={originalIdx}
-                    onClick={() => toggleOption(originalIdx)}
-                    disabled={answerState !== 'unanswered'}
-                    className={`w-full text-left px-4 py-3 rounded-lg border-2 text-sm transition-all ${style}`}
-                  >
-                    <span className="font-medium mr-2">{String.fromCharCode(65 + displayIdx)}.</span>
-                    {renderOptionText(opt)}
-                  </button>
-                )
-              })}
-            </div>
+            {subQ.answer_type === 'multi_select' && <MultiSelectHint />}
+            {renderOptions(subQ.options, subQ.correct_answers, shuffleOrder, subQ.answer_type === 'multi_select')}
           </CardContent>
         </Card>
 
@@ -358,9 +441,14 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
         )}
 
         {answerState === 'unanswered' ? (
-          <Button onClick={submitCompoundAnswer} disabled={selected.length === 0} className="w-full" size="lg">
-            Submit Answer
-          </Button>
+          <div className="space-y-1">
+            {subQ.answer_type === 'multi_select' && selected.length > 0 && (
+              <p className="text-xs text-gray-500 text-right">{selected.length} selected</p>
+            )}
+            <Button onClick={submitCompoundAnswer} disabled={selected.length === 0} className="w-full" size="lg">
+              Submit Answer
+            </Button>
+          </div>
         ) : !isLastSubQ ? (
           <Button onClick={advanceSubQuestion} className="w-full" size="lg">Next Part →</Button>
         ) : (
@@ -369,6 +457,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
           </Button>
         )}
         {exitDialog}
+        {confirmSingleDialog}
       </div>
     )
   }
@@ -454,37 +543,14 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
               {stripPenaltyTableMarker(question.text)}
             </p>
           )}
-          {question.answer_type === 'multi_select' && (
-            <p className="text-xs text-gray-400 mb-4">Select all that apply</p>
+          {question.answer_type === 'multi_select' && <MultiSelectHint />}
+
+          {renderOptions(
+            question.options,
+            question.correct_answers,
+            shuffledOrder.length === question.options.length ? shuffledOrder : question.options.map((_, i) => i),
+            question.answer_type === 'multi_select'
           )}
-
-          <div className="space-y-2 mt-4">
-            {(shuffledOrder.length === question.options.length ? shuffledOrder : question.options.map((_, i) => i)).map((originalIdx, displayIdx) => {
-              const opt = question.options[originalIdx]
-              const isSelected = selected.includes(originalIdx)
-              const isCorrect = question.correct_answers.includes(originalIdx)
-              let style = 'border-gray-200 bg-white hover:border-gray-300'
-
-              if (answerState !== 'unanswered') {
-                if (isCorrect) style = 'border-green-500 bg-green-50 text-green-900'
-                else if (isSelected && !isCorrect) style = 'border-red-400 bg-red-50 text-red-900'
-              } else if (isSelected) {
-                style = 'border-slate-900 bg-slate-50'
-              }
-
-              return (
-                <button
-                  key={originalIdx}
-                  onClick={() => toggleOption(originalIdx)}
-                  disabled={answerState !== 'unanswered'}
-                  className={`w-full text-left px-4 py-3 rounded-lg border-2 text-sm transition-all ${style}`}
-                >
-                  <span className="font-medium mr-2">{String.fromCharCode(65 + displayIdx)}.</span>
-                  {renderOptionText(opt)}
-                </button>
-              )
-            })}
-          </div>
         </CardContent>
       </Card>
 
@@ -510,15 +576,21 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
       )}
 
       {answerState === 'unanswered' ? (
-        <Button onClick={submitAnswer} disabled={selected.length === 0 || submitting} className="w-full" size="lg">
-          Submit Answer
-        </Button>
+        <div className="space-y-1">
+          {question.answer_type === 'multi_select' && selected.length > 0 && (
+            <p className="text-xs text-gray-500 text-right">{selected.length} selected</p>
+          )}
+          <Button onClick={submitAnswer} disabled={selected.length === 0 || submitting} className="w-full" size="lg">
+            Submit Answer
+          </Button>
+        </div>
       ) : (
         <Button onClick={onNext} className="w-full" size="lg">
           {nextLabel}
         </Button>
       )}
       {exitDialog}
+      {confirmSingleDialog}
     </div>
   )
 }
