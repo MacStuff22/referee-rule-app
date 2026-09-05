@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 import { scoreAnswer } from '@/lib/quiz/scoring'
 import { classifyMastery, updateEma, nextRefreshInterval, MASTERY_CONFIG } from '@/lib/quiz/mastery'
@@ -75,7 +76,13 @@ export async function POST(request: Request) {
   const priorInterval = existingMastery?.refresh_interval_days ?? MASTERY_CONFIG.baseRefreshIntervalDays
   const wasMastered = classifyMastery(priorTotal, priorEma) === 'mastered'
 
-  await supabase.from('user_category_mastery').upsert(
+  // Written via the service-role client, not the user's own request-scoped
+  // one: ema_score/total_answered are trusted derived values (see the
+  // comment on isCorrect above), and RLS no longer grants regular users any
+  // insert/update on this table -- see supabase-migration-quiz-progress-
+  // integrity.sql.
+  const adminSupabase = createAdminClient()
+  await adminSupabase.from('user_category_mastery').upsert(
     {
       user_id: user.id,
       category: question.category,
