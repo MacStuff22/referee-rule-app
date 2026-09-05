@@ -15,7 +15,7 @@
 // uses internally.
 // ============================================================
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Check, ListChecks } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -25,7 +25,7 @@ import { ScoreboardSimulator } from '@/components/quiz/scoreboard-simulator'
 import { encodeCompoundAnswer, type ScoreboardAnswerEntry } from '@/lib/quiz/answers'
 import { parseScoreboardConfig } from '@/types/scoreboard'
 import { splitOnPenaltyTableMarker, stripPenaltyTableMarker } from '@/lib/penaltyTable'
-import type { Question } from '@/types'
+import type { Question, SubQuestion } from '@/types'
 
 type AnswerState = 'unanswered' | 'correct' | 'incorrect'
 
@@ -115,22 +115,32 @@ function shuffleIndices(count: number): number[] {
   return arr
 }
 
+const SELECT_ALL_HINT = 'Select all that apply'
+
 function MultiSelectHint() {
   return (
-    <span className="inline-flex items-center gap-1.5 mb-4 rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">
+    <Badge variant="outline" className="mb-4 gap-1.5 border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">
       <ListChecks className="h-3.5 w-3.5" />
-      Select all that apply
-    </span>
+      {SELECT_ALL_HINT}
+    </Badge>
   )
+}
+
+function needsSingleAnswerConfirm(answerType: string, selectedCount: number, correctCount: number) {
+  return answerType === 'multi_select' && selectedCount === 1 && correctCount > 1
 }
 
 export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, onExit, showMeta = false }: QuizRunnerProps) {
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
-  // Confirmation gate for submitting a multi-select question with only one option checked
-  const [confirmSingleOpen, setConfirmSingleOpen] = useState(false)
+  // Confirmation gate for submitting a multi-select question with only one option checked.
+  // Dialog is open whenever there's a submit waiting on confirmation.
   const [pendingSubmit, setPendingSubmit] = useState<null | (() => void)>(null)
+
+  // Guards doSubmitAnswer/doSubmitCompoundAnswer against firing twice from a fast
+  // double-click/double-tap on "Submit anyway", which bypasses the normal button's guards.
+  const submitLockRef = useRef(false)
 
   // Standard question state
   const [selected, setSelected] = useState<number[]>([])
@@ -169,20 +179,28 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
   // ─── Shared option-list rendering (standard + compound both call this) ──────
 
   function renderOptions(options: string[], correctAnswers: number[], order: number[], isMultiSelect: boolean) {
+    const isAnswered = answerState !== 'unanswered'
     return (
-      <div className="space-y-2 mt-3" role="group" aria-label={isMultiSelect ? 'Select all that apply' : 'Select one answer'}>
+      <div
+        className="space-y-2 mt-3"
+        role={isMultiSelect ? 'group' : 'radiogroup'}
+        aria-label={isMultiSelect ? SELECT_ALL_HINT : 'Select one answer'}
+      >
         {order.map((originalIdx, displayIdx) => {
           const opt = options[originalIdx]
           const isSelected = selected.includes(originalIdx)
           const isCorrect = correctAnswers.includes(originalIdx)
           let style = 'border-gray-200 bg-white hover:border-gray-300'
           let glyphStyle = 'border-gray-400 bg-white'
-          const glyphFilled = isSelected || (answerState !== 'unanswered' && isCorrect)
 
-          if (answerState !== 'unanswered') {
+          // The glyph only ever reflects the user's own selection (isSelected) --
+          // never the revealed answer key -- so a radio never shows two "on" dots
+          // at once, and aria-checked always matches what's visually filled in.
+          // Correctness after answering is conveyed by the row/glyph border color instead.
+          if (isAnswered) {
             if (isCorrect) {
               style = 'border-green-500 bg-green-50 text-green-900'
-              glyphStyle = 'bg-green-600 border-green-600'
+              glyphStyle = isSelected ? 'bg-green-600 border-green-600' : 'border-green-500 bg-white'
             } else if (isSelected && !isCorrect) {
               style = 'border-red-400 bg-red-50 text-red-900'
               glyphStyle = 'bg-red-500 border-red-500'
@@ -198,7 +216,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
             <button
               key={originalIdx}
               onClick={() => toggleOption(originalIdx)}
-              disabled={answerState !== 'unanswered'}
+              disabled={isAnswered}
               role={isMultiSelect ? 'checkbox' : 'radio'}
               aria-checked={isSelected}
               className={`w-full text-left px-4 py-3 rounded-lg border-2 text-sm transition-all flex items-center gap-3 ${style}`}
@@ -207,7 +225,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
                 aria-hidden="true"
                 className={`shrink-0 flex items-center justify-center w-4 h-4 border-2 ${isMultiSelect ? 'rounded' : 'rounded-full'} ${glyphStyle}`}
               >
-                {glyphFilled && (isMultiSelect ? (
+                {isSelected && (isMultiSelect ? (
                   <Check className="h-3 w-3 text-white" strokeWidth={3} />
                 ) : (
                   <span className="w-1.5 h-1.5 rounded-full bg-white" />
@@ -224,9 +242,16 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
     )
   }
 
+  function renderSelectedCount(answerType: string) {
+    if (answerType !== 'multi_select' || selected.length === 0) return null
+    return <p className="text-xs text-gray-500 text-right">{selected.length} selected</p>
+  }
+
   // ─── Standard question submit ───────────────────────────────────────────────
 
   async function doSubmitAnswer() {
+    if (submitLockRef.current) return
+    submitLockRef.current = true
     setSubmitting(true)
     try {
       const result = await onAnswered(selected)
@@ -238,9 +263,8 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
 
   function submitAnswer() {
     if (selected.length === 0 || submitting) return
-    if (question.answer_type === 'multi_select' && selected.length === 1 && question.correct_answers.length > 1) {
+    if (needsSingleAnswerConfirm(question.answer_type, selected.length, question.correct_answers.length)) {
       setPendingSubmit(() => doSubmitAnswer)
-      setConfirmSingleOpen(true)
       return
     }
     doSubmitAnswer()
@@ -248,12 +272,13 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
 
   // ─── Compound question submit ───────────────────────────────────────────────
 
-  function doSubmitCompoundAnswer() {
+  function doSubmitCompoundAnswer(subQ: SubQuestion) {
+    if (submitLockRef.current) return
+    submitLockRef.current = true
     // Per-part reveal stays local -- it's already visible information
     // (sub_questions[i].correct_answers is part of the fetched question),
     // not the security boundary. Only the final persisted row's is_correct
     // is decided by the parent (server-verified for the real quiz).
-    const subQ = question.sub_questions[compoundSubIndex]
     const sortedSelected = [...selected].sort()
     const sortedCorrect = [...subQ.correct_answers].sort()
     const isCorrect = JSON.stringify(sortedSelected) === JSON.stringify(sortedCorrect)
@@ -271,18 +296,18 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
   function submitCompoundAnswer() {
     if (selected.length === 0) return
     const subQ = question.sub_questions[compoundSubIndex]
-    if (subQ.answer_type === 'multi_select' && selected.length === 1 && subQ.correct_answers.length > 1) {
-      setPendingSubmit(() => doSubmitCompoundAnswer)
-      setConfirmSingleOpen(true)
+    if (needsSingleAnswerConfirm(subQ.answer_type, selected.length, subQ.correct_answers.length)) {
+      setPendingSubmit(() => () => doSubmitCompoundAnswer(subQ))
       return
     }
-    doSubmitCompoundAnswer()
+    doSubmitCompoundAnswer(subQ)
   }
 
   function advanceSubQuestion() {
     setCompoundSubIndex((i) => i + 1)
     setSelected([])
     setAnswerState('unanswered')
+    submitLockRef.current = false
   }
 
   // ─── Scoreboard question submit (invoked by ScoreboardSimulator) ─────────────
@@ -343,7 +368,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
   ) : null
 
   const confirmSingleDialog = (
-    <Dialog open={confirmSingleOpen} onOpenChange={setConfirmSingleOpen}>
+    <Dialog open={pendingSubmit !== null} onOpenChange={(open) => { if (!open) setPendingSubmit(null) }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Submit with just one answer?</DialogTitle>
@@ -353,8 +378,8 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setConfirmSingleOpen(false)}>Review answers</Button>
-          <Button onClick={() => { setConfirmSingleOpen(false); pendingSubmit?.() }}>Submit anyway</Button>
+          <Button variant="outline" onClick={() => setPendingSubmit(null)}>Review answers</Button>
+          <Button onClick={() => { const submit = pendingSubmit; setPendingSubmit(null); submit?.() }}>Submit anyway</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -442,9 +467,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
 
         {answerState === 'unanswered' ? (
           <div className="space-y-1">
-            {subQ.answer_type === 'multi_select' && selected.length > 0 && (
-              <p className="text-xs text-gray-500 text-right">{selected.length} selected</p>
-            )}
+            {renderSelectedCount(subQ.answer_type)}
             <Button onClick={submitCompoundAnswer} disabled={selected.length === 0} className="w-full" size="lg">
               Submit Answer
             </Button>
@@ -577,9 +600,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
 
       {answerState === 'unanswered' ? (
         <div className="space-y-1">
-          {question.answer_type === 'multi_select' && selected.length > 0 && (
-            <p className="text-xs text-gray-500 text-right">{selected.length} selected</p>
-          )}
+          {renderSelectedCount(question.answer_type)}
           <Button onClick={submitAnswer} disabled={selected.length === 0 || submitting} className="w-full" size="lg">
             Submit Answer
           </Button>
