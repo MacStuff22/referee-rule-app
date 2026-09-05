@@ -13,6 +13,7 @@ const LIVE_POOL_CHUNK_SIZE = 200
 export interface LivePoolQuestion {
   id: string
   category: string
+  situation_id: string
 }
 
 /** Cross-references a path's snapshotted pool_question_ids against currently-approved questions. */
@@ -25,11 +26,12 @@ export async function fetchLivePoolQuestions(
     const chunk = poolIds.slice(i, i + LIVE_POOL_CHUNK_SIZE)
     const { data, error } = await supabase
       .from('questions')
-      .select('id, category')
+      .select('id, category, situation_id')
       .eq('is_approved', true)
       .in('id', chunk)
     if (error) throw new Error(`Failed to resolve live pool questions: ${error.message}`)
-    for (const q of data ?? []) results.push({ id: q.id as string, category: q.category as string })
+    for (const q of data ?? [])
+      results.push({ id: q.id as string, category: q.category as string, situation_id: q.situation_id as string })
   }
   return results
 }

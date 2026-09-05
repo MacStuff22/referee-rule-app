@@ -10,11 +10,17 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { ScoreboardPreview } from '@/components/admin/scoreboard-preview'
 import { PenaltyTableChipEditor } from '@/components/admin/penalty-table-chip-editor'
+import { MatchPromptDialog, type MatchGroup } from '@/components/admin/match-prompt-dialog'
+import { AutoUpdatePreviewDialog } from '@/components/admin/auto-update-preview-dialog'
 import { HANDBOOK_SECTIONS, CATEGORIES } from '@/lib/constants'
 import { PENALTY_DISPLAY, parseGameTime, formatGT, gtSecondsValid, maskGameTime } from '@/lib/scoreboard'
 import { PENALTY_TABLE_MARKER, hasPenaltyTableMarker } from '@/lib/penaltyTable'
+import { getMatchesForSituation, getQuestionsBySituationIds, otherSituationId } from '@/lib/situationMatches'
 import type { SinglePenalty } from '@/types/scoreboard'
 import type { League, Question, SubQuestion } from '@/types'
+
+const MATCH_REVIEW_QUEUE_KEY = 'match_review_queue'
+const SUBSTANTIVE_FIELDS = ['text', 'options', 'correct_answers', 'rationale', 'sub_questions', 'rule_references'] as const
 
 const AutoResizeTextarea = forwardRef<HTMLTextAreaElement, {
   value: string
@@ -120,6 +126,22 @@ export default function QuestionForm({ question }: Props) {
   useEffect(() => {
     if (!question?.id) return
     try {
+      // The match-review queue (set when the admin picks "Review manually"
+      // from the known-matches prompt) takes priority over the ordinary
+      // list-browsing queue, so a detour into reviewing matches never
+      // disturbs whatever queue the admin was already browsing.
+      const matchRaw = sessionStorage.getItem(MATCH_REVIEW_QUEUE_KEY)
+      if (matchRaw) {
+        const { ids, backUrl: url } = JSON.parse(matchRaw) as { ids: string[]; backUrl: string }
+        const idx = ids.indexOf(question.id)
+        if (idx !== -1) {
+          if (url) setBackUrl(url)
+          setNextPosition({ current: idx + 1, total: ids.length })
+          if (idx < ids.length - 1) setNextId(ids[idx + 1])
+          return
+        }
+      }
+
       const raw = sessionStorage.getItem('question_queue')
       if (!raw) return
       const { ids, backUrl: url } = JSON.parse(raw) as { ids: string[]; backUrl: string }
@@ -438,45 +460,149 @@ export default function QuestionForm({ question }: Props) {
     setSbPlayerAnswers((prev) => prev.map((a, x) => x === i ? { ...a, [key]: val } : a))
   }
 
+  // ── Known-matches prompt ─────────────────────────────────────────────────
+
+  interface MatchPromptState {
+    sourceQuestionId: string
+    payload: Record<string, unknown>
+    groups: MatchGroup[]
+    canAutoUpdate: boolean
+    navigate: () => void
+  }
+
+  interface AutoUpdateState {
+    targetQuestions: Question[]
+    payload: Record<string, unknown>
+    navigate: () => void
+  }
+
+  const [matchPrompt, setMatchPrompt] = useState<MatchPromptState | null>(null)
+  const [autoUpdateState, setAutoUpdateState] = useState<AutoUpdateState | null>(null)
+
+  /**
+   * After a successful save on an existing question, checks whether any
+   * known matches should be surfaced before navigating away. Creation is
+   * exempt (a brand-new question has no matches yet by definition), and the
+   * prompt only fires on a substantive change — comparing the freshly-built
+   * payload against the original `question` prop, the only true "before"
+   * snapshot available.
+   */
+  async function maybeShowMatchPrompt(payload: Record<string, unknown>, navigate: () => void) {
+    if (!question?.id) { navigate(); return }
+
+    const substantiveChanged = SUBSTANTIVE_FIELDS.some(
+      (field) => JSON.stringify(payload[field]) !== JSON.stringify((question as unknown as Record<string, unknown>)[field])
+    )
+    if (!substantiveChanged) { navigate(); return }
+
+    // Post-save situation_id — if it changed in this same save, check
+    // matches against where the row now lives, not where it used to be.
+    const sid = (payload.situation_id as string) || question.situation_id
+    if (!sid) { navigate(); return }
+
+    const matches = await getMatchesForSituation(supabase, sid)
+    if (matches.length === 0) { navigate(); return }
+
+    const otherSituationIds = [...new Set(matches.map((m) => otherSituationId(m, sid)))]
+    const matchedQuestions = await getQuestionsBySituationIds(supabase, otherSituationIds)
+
+    const groups: MatchGroup[] = matches
+      .map((m) => {
+        const otherSid = otherSituationId(m, sid)
+        return {
+          situationId: otherSid,
+          matchType: m.match_type,
+          questions: matchedQuestions.filter((q) => q.situation_id === otherSid),
+        }
+      })
+      .filter((g) => g.questions.length > 0)
+
+    if (groups.length === 0) { navigate(); return }
+
+    // Auto-update is only offered when every exact-match target shares both
+    // question_type and answer_type with the source — a mismatch (e.g. one
+    // multiple_choice, one multi_select under the same question_type) would
+    // otherwise silently copy a multi-answer correct_answers array onto a
+    // single-select row.
+    const exactQuestions = groups.filter((g) => g.matchType === 'exact_match').flatMap((g) => g.questions)
+    const canAutoUpdate =
+      exactQuestions.length > 0 &&
+      exactQuestions.every((q) => q.question_type === payload.question_type && q.answer_type === payload.answer_type)
+
+    setMatchPrompt({ sourceQuestionId: question.id, payload, groups, canAutoUpdate, navigate })
+  }
+
+  function handleReviewManually(questionIds: string[]) {
+    if (!matchPrompt) return
+    try {
+      sessionStorage.setItem(
+        MATCH_REVIEW_QUEUE_KEY,
+        JSON.stringify({ ids: questionIds, backUrl: `/admin/questions/${matchPrompt.sourceQuestionId}` })
+      )
+    } catch {
+      // sessionStorage unavailable — navigation to the first match still works,
+      // it just won't chain through the rest via Save & Next.
+    }
+    setMatchPrompt(null)
+    router.push(`/admin/questions/${questionIds[0]}`)
+  }
+
+  function handleAutoUpdate() {
+    if (!matchPrompt) return
+    const targetQuestions = matchPrompt.groups
+      .filter((g) => g.matchType === 'exact_match')
+      .flatMap((g) => g.questions)
+    setAutoUpdateState({ targetQuestions, payload: matchPrompt.payload, navigate: matchPrompt.navigate })
+    setMatchPrompt(null)
+  }
+
+  async function confirmAutoUpdate(targetIds: string[], autoUpdatePayload: Record<string, unknown>) {
+    const { error } = await supabase.from('questions').update(autoUpdatePayload).in('id', targetIds)
+    if (error) throw new Error(error.message)
+    const navigate = autoUpdateState?.navigate
+    setAutoUpdateState(null)
+    navigate?.()
+  }
+
   // ── Save logic ────────────────────────────────────────────────────────────
 
-  async function doSave(): Promise<boolean> {
+  async function doSave(): Promise<{ success: boolean; payload?: Record<string, unknown> }> {
     setError('')
 
-    if (!text.trim()) { setError('Situation / question text is required.'); return false }
-    if (!category) { setError('Category is required.'); return false }
-    if (!handbookSection) { setError('Handbook section is required.'); return false }
-    if (league.length === 0) { setError('Select at least one league.'); return false }
+    if (!text.trim()) { setError('Situation / question text is required.'); return { success: false } }
+    if (!category) { setError('Category is required.'); return { success: false } }
+    if (!handbookSection) { setError('Handbook section is required.'); return { success: false } }
+    if (league.length === 0) { setError('Select at least one league.'); return { success: false } }
 
     const filledRefs = ruleRefs.filter((r) => r.trim())
 
     let payload: Record<string, unknown>
 
     if (mode === 'scoreboard') {
-      if (sbEvents.length === 0) { setError('Add at least one event.'); return false }
-      if (sbPlayerAnswers.length === 0) { setError('Add at least one correct answer row.'); return false }
-      if (!rationale.trim()) { setError('Rationale is required.'); return false }
+      if (sbEvents.length === 0) { setError('Add at least one event.'); return { success: false } }
+      if (sbPlayerAnswers.length === 0) { setError('Add at least one correct answer row.'); return { success: false } }
+      if (!rationale.trim()) { setError('Rationale is required.'); return { success: false } }
 
       for (let i = 0; i < sbEvents.length; i++) {
         const e = sbEvents[i]
-        if (parseGT(e.gt) <= 0) { setError(`Event ${i + 1}: enter a valid game time (e.g. 3:18).`); return false }
-        if (!gtSecondsValid(e.gt)) { setError(`Event ${i + 1}: seconds must be 0–59.`); return false }
-        if (e.type !== 'other' && !e.team) { setError(`Event ${i + 1}: team is required.`); return false }
+        if (parseGT(e.gt) <= 0) { setError(`Event ${i + 1}: enter a valid game time (e.g. 3:18).`); return { success: false } }
+        if (!gtSecondsValid(e.gt)) { setError(`Event ${i + 1}: seconds must be 0–59.`); return { success: false } }
+        if (e.type !== 'other' && !e.team) { setError(`Event ${i + 1}: team is required.`); return { success: false } }
         if (e.type === 'penalty') {
-          if (!e.player.trim()) { setError(`Event ${i + 1}: player number is required.`); return false }
-          if (e.penalties.length === 0) { setError(`Event ${i + 1}: select a penalty type.`); return false }
+          if (!e.player.trim()) { setError(`Event ${i + 1}: player number is required.`); return { success: false } }
+          if (e.penalties.length === 0) { setError(`Event ${i + 1}: select a penalty type.`); return { success: false } }
         }
         if (e.type === 'other') {
-          if (!e.title.trim()) { setError(`Event ${i + 1}: enter a title for this event.`); return false }
-          if (!e.descriptor.trim()) { setError(`Event ${i + 1}: enter a descriptor for this event.`); return false }
+          if (!e.title.trim()) { setError(`Event ${i + 1}: enter a title for this event.`); return { success: false } }
+          if (!e.descriptor.trim()) { setError(`Event ${i + 1}: enter a descriptor for this event.`); return { success: false } }
         }
       }
 
       for (let i = 0; i < sbPlayerAnswers.length; i++) {
         const a = sbPlayerAnswers[i]
-        if (!a.player.trim()) { setError(`Answer ${i + 1}: player number is required.`); return false }
-        if (!a.already_expired && !a.wash_out && !parseGT(a.correct_gt)) { setError(`Answer ${i + 1}: enter a correct time or mark as Wash Out.`); return false }
-        if (!a.already_expired && !a.wash_out && !gtSecondsValid(a.correct_gt)) { setError(`Answer ${i + 1}: seconds must be 0–59.`); return false }
+        if (!a.player.trim()) { setError(`Answer ${i + 1}: player number is required.`); return { success: false } }
+        if (!a.already_expired && !a.wash_out && !parseGT(a.correct_gt)) { setError(`Answer ${i + 1}: enter a correct time or mark as Wash Out.`); return { success: false } }
+        if (!a.already_expired && !a.wash_out && !gtSecondsValid(a.correct_gt)) { setError(`Answer ${i + 1}: seconds must be 0–59.`); return { success: false } }
       }
 
       payload = {
@@ -508,11 +634,11 @@ export default function QuestionForm({ question }: Props) {
     } else if (mode === 'compound') {
       for (let i = 0; i < subQuestions.length; i++) {
         const sq = subQuestions[i]
-        if (!sq.text.trim()) { setError(`Sub-question ${i + 1} is missing its question text.`); return false }
+        if (!sq.text.trim()) { setError(`Sub-question ${i + 1} is missing its question text.`); return { success: false } }
         const filled = sq.options.filter((o) => o.trim())
-        if (filled.length < 2) { setError(`Sub-question ${i + 1} needs at least 2 answer options.`); return false }
-        if (sq.correct_answers.length === 0) { setError(`Sub-question ${i + 1} has no correct answer selected.`); return false }
-        if (!sq.rationale.trim()) { setError(`Sub-question ${i + 1} is missing a rationale.`); return false }
+        if (filled.length < 2) { setError(`Sub-question ${i + 1} needs at least 2 answer options.`); return { success: false } }
+        if (sq.correct_answers.length === 0) { setError(`Sub-question ${i + 1} has no correct answer selected.`); return { success: false } }
+        if (!sq.rationale.trim()) { setError(`Sub-question ${i + 1} is missing a rationale.`); return { success: false } }
       }
 
       const cleanedSubQs: SubQuestion[] = subQuestions.map((sq) => ({
@@ -541,10 +667,10 @@ export default function QuestionForm({ question }: Props) {
       }
 
     } else {
-      if (correctAnswers.length === 0) { setError('Select at least one correct answer.'); return false }
-      if (!rationale.trim()) { setError('Rationale is required.'); return false }
+      if (correctAnswers.length === 0) { setError('Select at least one correct answer.'); return { success: false } }
+      if (!rationale.trim()) { setError('Rationale is required.'); return { success: false } }
       const filledOptions = options.filter((o) => o.trim())
-      if (filledOptions.length < 2) { setError('At least 2 answer options are required.'); return false }
+      if (filledOptions.length < 2) { setError('At least 2 answer options are required.'); return { success: false } }
 
       payload = {
         text: text.trim(),
@@ -580,17 +706,21 @@ export default function QuestionForm({ question }: Props) {
     }
     setSaving(false)
 
-    if (err) { setError(err.message); return false }
-    return true
+    if (err) { setError(err.message); return { success: false } }
+    return { success: true, payload }
   }
 
   async function handleSave() {
-    if (await doSave()) { router.push(backUrl); router.refresh() }
+    const result = await doSave()
+    if (!result.success) return
+    await maybeShowMatchPrompt(result.payload!, () => { router.push(backUrl); router.refresh() })
   }
 
   async function handleSaveAndNext() {
     if (!nextId) return
-    if (await doSave()) { router.push(`/admin/questions/${nextId}`); router.refresh() }
+    const result = await doSave()
+    if (!result.success) return
+    await maybeShowMatchPrompt(result.payload!, () => { router.push(`/admin/questions/${nextId}`); router.refresh() })
   }
 
   async function deleteQuestion() {
@@ -1442,6 +1572,37 @@ export default function QuestionForm({ question }: Props) {
           <Button variant="destructive" onClick={deleteQuestion}>Delete</Button>
         )}
       </div>
+
+      <MatchPromptDialog
+        open={!!matchPrompt}
+        onOpenChange={(open) => {
+          if (!open) {
+            const navigate = matchPrompt?.navigate
+            setMatchPrompt(null)
+            navigate?.()
+          }
+        }}
+        groups={matchPrompt?.groups ?? []}
+        canAutoUpdate={matchPrompt?.canAutoUpdate ?? false}
+        onReviewManually={handleReviewManually}
+        onAutoUpdate={handleAutoUpdate}
+      />
+
+      {autoUpdateState && (
+        <AutoUpdatePreviewDialog
+          open={true}
+          onOpenChange={(open) => {
+            if (!open) {
+              const navigate = autoUpdateState.navigate
+              setAutoUpdateState(null)
+              navigate()
+            }
+          }}
+          targetQuestions={autoUpdateState.targetQuestions}
+          payload={autoUpdateState.payload}
+          onConfirm={confirmAutoUpdate}
+        />
+      )}
     </div>
   )
 }

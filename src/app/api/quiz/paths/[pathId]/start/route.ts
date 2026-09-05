@@ -4,6 +4,13 @@ import { weightForCategory, MASTERY_CONFIG, type CategoryMasteryRow } from '@/li
 import { remainingScheduledDays, reflowPace, reservedCoverageSlots, computeTargetEndDate } from '@/lib/quiz/paths'
 import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
 import { weightedSampleWithoutReplacement } from '@/lib/quiz/sampling'
+import {
+  getAllSuppressionMatches,
+  buildSuppressionAdjacency,
+  createSituationExclusionTracker,
+  trailingWindowSituations,
+  computeBlanketExclusion,
+} from '@/lib/situationMatches'
 
 function shuffle<T>(items: T[]): T[] {
   const arr = [...items]
@@ -60,14 +67,19 @@ export async function POST(request: Request, { params }: Params) {
   }
 
   const categoryById = new Map(liveQuestions.map((q) => [q.id, q.category]))
+  const situationIdById = new Map(liveQuestions.map((q) => [q.id, q.situation_id]))
   const livePoolIds = liveQuestions.map((q) => q.id)
 
+  // Ordered ascending so concatenating question_ids below reflects the
+  // actual chronological sequence of questions seen across this path's days
+  // — needed to compute the cumulative-position gap for situation matches.
   const { data: completedSessions } = await supabase
     .from('quiz_sessions')
     .select('question_ids')
     .eq('path_id', pathId)
     .eq('user_id', user.id)
     .not('completed_at', 'is', null)
+    .order('started_at', { ascending: true })
 
   const covered = new Set<string>()
   for (const s of completedSessions ?? []) {
@@ -99,11 +111,33 @@ export async function POST(request: Request, { params }: Params) {
     await supabase.from('quiz_paths').update(updates).eq('id', pathId)
   }
 
+  // Matched questions (exact/very-similar situations) get a real minimum-
+  // 35-question gap across the whole path, not just within one day — so the
+  // exclusion state is seeded from the trailing window of the path's
+  // cumulative history, then shared across BOTH the reserved and fill picks
+  // below via one tracker instance (a pick in either call excludes its
+  // partner from the other). Exclusion happens at pick time, before the
+  // final shuffle, so it holds regardless of shuffle order.
+  const suppressionMatches = await getAllSuppressionMatches(supabase)
+  const adjacency = buildSuppressionAdjacency(suppressionMatches)
+  const cumulativeSituations = (completedSessions ?? [])
+    .flatMap((s) => (s.question_ids as string[]) ?? [])
+    .map((id) => situationIdById.get(id))
+    .filter((s): s is string => !!s)
+  const preExcluded = computeBlanketExclusion(trailingWindowSituations(cumulativeSituations), adjacency)
+  const tracker = createSituationExclusionTracker({
+    situationIdByQuestionId: situationIdById,
+    adjacency,
+    preExcludedSituations: preExcluded,
+  })
+  const sampleOptions = { isExcluded: tracker.isExcluded, onPick: tracker.excludeAfterPick }
+
   const todaysTarget = Math.min(reflow.questionsPerDay, livePoolIds.length)
   const reservedCount = reservedCoverageSlots(uncoveredPool.length, remaining, todaysTarget)
   const reservedIds = weightedSampleWithoutReplacement(
     uncoveredPool.map((id) => ({ id, weight: 1 })),
-    reservedCount
+    reservedCount,
+    sampleOptions
   )
   const reservedSet = new Set(reservedIds)
 
@@ -142,7 +176,7 @@ export async function POST(request: Request, { params }: Params) {
     })
 
   const fillCount = Math.max(0, todaysTarget - reservedIds.length)
-  const fillIds = weightedSampleWithoutReplacement(fillCandidates, fillCount)
+  const fillIds = weightedSampleWithoutReplacement(fillCandidates, fillCount, sampleOptions)
 
   const sessionQuestionIds = shuffle([...reservedIds, ...fillIds])
 

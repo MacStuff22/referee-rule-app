@@ -29,6 +29,7 @@ export default function Nav({ profile }: NavProps) {
     ...(profile.role === 'admin'
       ? [
           { href: '/admin/questions', label: 'Questions' },
+          { href: '/admin/matches', label: 'Matches' },
           { href: '/admin/users', label: 'Users' },
           { href: '/admin/analytics', label: 'Analytics' },
           { href: '/admin/test-quiz', label: 'Test Quiz' },

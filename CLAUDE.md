@@ -24,6 +24,17 @@ There is no CI pipeline in this repo — `npm run build` succeeding locally is t
 
 This project has no `git push` step performed by Claude. Morgan syncs commits to GitHub via GitHub Desktop (this appears to happen automatically/quickly after a local commit — verify with `git fetch && git log origin/main..HEAD` before assuming something is unpushed). Vercel auto-deploys from GitHub `main`. Production is at `https://referee-rule-app.vercel.app/`. If a change isn't showing in production after being committed, check the Vercel dashboard's Deployments tab for build failures rather than assuming the push didn't happen.
 
+## Development workflow
+
+For any non-trivial feature or fix, follow Explore → Plan → Code → Commit:
+
+1. Start a new chat scoped to the task rather than growing one long-running "build" chat — a fresh session re-reads the actual current code instead of leaning on memory of unrelated past turns. Keep content/data work (writing or curating handbook questions) in its own separate chat.
+2. Use Plan Mode to explore the codebase and produce a written plan before any code changes; answer clarifying questions when asked rather than letting ambiguous requirements get guessed at.
+3. Once the plan is approved, implement in that same session.
+4. Before committing: `npm run build && npm test` — this is the only real gate, since there's no CI.
+5. Run `/code-review` before committing. Use `/security-review` instead for anything touching permissions, RLS policies, or auth. For large or newly-built features, use `/code-review ultra` for a deeper multi-agent review.
+6. Commit locally — Morgan syncs to GitHub via GitHub Desktop (see Deploy workflow above).
+
 ## Architecture
 
 Next.js App Router + Supabase (Postgres, auth, RLS) + Tailwind v4 + shadcn/ui (`base-nova` style, see `components.json`). Deployed on Vercel.

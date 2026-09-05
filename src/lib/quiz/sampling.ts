@@ -11,9 +11,25 @@ export interface WeightedItem {
   weight: number
 }
 
-export function weightedSampleWithoutReplacement(items: WeightedItem[], count: number): string[] {
+export interface SampleOptions {
+  /** Re-evaluated against the pool before the first pick and after every
+   *  pick — lets a caller drop items that just became ineligible (e.g. a
+   *  situation-matched sibling of something just picked) without this
+   *  function knowing why. */
+  isExcluded?: (id: string) => boolean
+  /** Fired with each picked id, right after it's spliced out of the pool —
+   *  a hook for the caller to update whatever state `isExcluded` reads on
+   *  the next iteration. */
+  onPick?: (pickedId: string) => void
+}
+
+export function weightedSampleWithoutReplacement(
+  items: WeightedItem[],
+  count: number,
+  options: SampleOptions = {}
+): string[] {
   const selected: string[] = []
-  const pool = [...items]
+  let pool = options.isExcluded ? items.filter((item) => !options.isExcluded!(item.id)) : [...items]
   const maxCount = Math.min(count, pool.length)
 
   while (selected.length < maxCount && pool.length > 0) {
@@ -26,8 +42,11 @@ export function weightedSampleWithoutReplacement(items: WeightedItem[], count: n
     }
     // Floating-point guard: if rand stayed above 0, take the last item
     if (picked === -1) picked = pool.length - 1
-    selected.push(pool[picked].id)
+    const pickedId = pool[picked].id
+    selected.push(pickedId)
     pool.splice(picked, 1)
+    options.onPick?.(pickedId)
+    if (options.isExcluded) pool = pool.filter((item) => !options.isExcluded!(item.id))
   }
 
   return [...new Set(selected)]

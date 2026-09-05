@@ -28,4 +28,43 @@ describe('weightedSampleWithoutReplacement', () => {
       expect(weightedSampleWithoutReplacement(items, 1)).toEqual(['b'])
     }
   })
+
+  describe('with isExcluded/onPick', () => {
+    // 'a' and 'b' are a matched pair; picking one should exclude the other
+    // for the rest of the same call, across repeated runs.
+    function partnerOf(id: string): string | undefined {
+      return id === 'a' ? 'b' : id === 'b' ? 'a' : undefined
+    }
+
+    it('never lets a declared partner be picked after its match', () => {
+      const items = [
+        { id: 'a', weight: 1 },
+        { id: 'b', weight: 1 },
+        { id: 'c', weight: 1 },
+        { id: 'd', weight: 1 },
+      ]
+      for (let i = 0; i < 30; i++) {
+        const excluded = new Set<string>()
+        const result = weightedSampleWithoutReplacement(items, 4, {
+          isExcluded: (id) => excluded.has(id),
+          onPick: (id) => {
+            const partner = partnerOf(id)
+            if (partner) excluded.add(partner)
+          },
+        })
+        expect(result.includes('a') && result.includes('b')).toBe(false)
+      }
+    })
+
+    it('excludes the very first pick via pre-seeding', () => {
+      const items = [
+        { id: 'a', weight: 1 },
+        { id: 'b', weight: 1 },
+      ]
+      for (let i = 0; i < 20; i++) {
+        const result = weightedSampleWithoutReplacement(items, 2, { isExcluded: (id) => id === 'a' })
+        expect(result).toEqual(['b'])
+      }
+    })
+  })
 })

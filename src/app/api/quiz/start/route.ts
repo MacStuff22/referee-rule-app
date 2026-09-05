@@ -3,6 +3,11 @@ import { NextResponse } from 'next/server'
 import { getAnsweredQuestionIds } from '@/lib/quiz/performance'
 import { weightForCategory, MASTERY_CONFIG, type CategoryMasteryRow } from '@/lib/quiz/mastery'
 import { weightedSampleWithoutReplacement } from '@/lib/quiz/sampling'
+import {
+  getAllSuppressionMatches,
+  buildSuppressionAdjacency,
+  createSituationExclusionTracker,
+} from '@/lib/situationMatches'
 import type { SessionLength } from '@/types'
 
 const SESSION_COUNTS: Record<SessionLength, number> = {
@@ -23,7 +28,7 @@ export async function POST(request: Request) {
   // Get all approved questions
   const { data: questions } = await supabase
     .from('questions')
-    .select('id, category')
+    .select('id, category, situation_id')
     .eq('is_approved', true)
 
   if (!questions || questions.length === 0) {
@@ -53,7 +58,18 @@ export async function POST(request: Request) {
     return { id: q.id, weight }
   })
 
-  const uniqueSelected = weightedSampleWithoutReplacement(weighted, targetCount)
+  // Matched questions (exact/very-similar situations) never both appear in
+  // one regular-quiz session — a fresh session each time, no cross-session
+  // memory, matching how the rest of this route already works.
+  const situationIdByQuestionId = new Map(questions.map((q) => [q.id, q.situation_id]))
+  const suppressionMatches = await getAllSuppressionMatches(supabase)
+  const adjacency = buildSuppressionAdjacency(suppressionMatches)
+  const tracker = createSituationExclusionTracker({ situationIdByQuestionId, adjacency })
+
+  const uniqueSelected = weightedSampleWithoutReplacement(weighted, targetCount, {
+    isExcluded: tracker.isExcluded,
+    onPick: tracker.excludeAfterPick,
+  })
 
   // Create session
   const { data: session, error } = await supabase
