@@ -30,6 +30,7 @@ const AutoResizeTextarea = forwardRef<HTMLTextAreaElement, {
   minHeight?: number
 }>(function AutoResizeTextarea({ value, onChange, placeholder, className, minHeight }, forwardedRef) {
   const ref = useRef<HTMLTextAreaElement>(null)
+  const lastWidthRef = useRef(0)
   const resize = useCallback(() => {
     const el = ref.current
     if (!el) return
@@ -37,6 +38,27 @@ const AutoResizeTextarea = forwardRef<HTMLTextAreaElement, {
     el.style.height = Math.max(el.scrollHeight, minHeight ?? 0) + 'px'
   }, [minHeight])
   useEffect(() => { resize() }, [value, resize])
+  // Wrapped line count — and so scrollHeight — depends on the textarea's rendered
+  // width, not just its value. On mount that width can still be settling (e.g. the
+  // page's own layout hasn't stabilized yet), so the effect above can measure at a
+  // transient, too-narrow width and lock in an inflated height that never gets
+  // recomputed since nothing else re-runs it. A ResizeObserver re-fires whenever the
+  // box's actual rendered width changes, so it catches the real width once layout
+  // settles. Compare against the previous width (not just "any resize") because
+  // resize() itself changes the element's height, which would otherwise re-trigger
+  // this observer in a loop.
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width
+      if (width === undefined || Math.abs(width - lastWidthRef.current) < 0.5) return
+      lastWidthRef.current = width
+      resize()
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [resize])
   return (
     <textarea
       ref={(el) => {
