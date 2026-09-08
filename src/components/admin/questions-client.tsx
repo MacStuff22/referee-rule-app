@@ -8,6 +8,8 @@ import { LinkButton } from '@/components/ui/link-button'
 import { HANDBOOK_SECTIONS } from '@/lib/constants'
 import { compareSituationIds } from '@/lib/situationId'
 import { getQuestionMode, QUESTION_MODE_LABELS, type QuestionMode } from '@/lib/questionMode'
+import { QUESTION_FEATURES } from '@/lib/questionFeatures'
+import { FeatureFilterDropdown } from '@/components/admin/feature-filter-dropdown'
 import type { Question } from '@/types'
 
 type SortKey = 'status' | 'situation_id' | 'rule' | 'category' | 'section' | 'created'
@@ -17,7 +19,7 @@ const SECTION_OPTIONS = HANDBOOK_SECTIONS
 
 function buildUrlParams(state: {
   sortKey: SortKey; sortDir: SortDir; filterStatus: string
-  filterSection: string; filterCategory: string; filterType: string; search: string
+  filterSection: string; filterCategory: string; filterType: string; filterFeatures: Set<string>; search: string
 }): string {
   const p = new URLSearchParams()
   if (state.sortKey !== 'created') p.set('sort', state.sortKey)
@@ -26,6 +28,7 @@ function buildUrlParams(state: {
   if (state.filterSection) p.set('section', state.filterSection)
   if (state.filterCategory) p.set('cat', state.filterCategory)
   if (state.filterType) p.set('type', state.filterType)
+  if (state.filterFeatures.size > 0) p.set('features', Array.from(state.filterFeatures).join(','))
   if (state.search) p.set('q', state.search)
   const s = p.toString()
   return s ? `?${s}` : ''
@@ -49,6 +52,9 @@ export default function QuestionsClient({ questions }: Props) {
   const [filterType, setFilterType] = useState<QuestionMode | ''>(
     () => (searchParams.get('type') as QuestionMode) ?? ''
   )
+  const [features, setFeatures] = useState<Set<string>>(
+    () => new Set((searchParams.get('features') ?? '').split(',').filter(Boolean))
+  )
   const [sortKey, setSortKey] = useState<SortKey>(
     () => (searchParams.get('sort') as SortKey) ?? 'created'
   )
@@ -68,6 +74,7 @@ export default function QuestionsClient({ questions }: Props) {
       if (filterSection && q.handbook_section !== filterSection) return false
       if (filterCategory && q.category !== filterCategory) return false
       if (filterType && getQuestionMode(q) !== filterType) return false
+      if (features.size > 0 && !QUESTION_FEATURES.some((f) => features.has(f.id) && f.matches(q))) return false
       if (search) {
         const s = search.toLowerCase()
         const refs = (q.rule_references ?? []).join(' ').toLowerCase()
@@ -98,16 +105,16 @@ export default function QuestionsClient({ questions }: Props) {
     })
 
     return result
-  }, [questions, filterStatus, filterSection, filterCategory, filterType, search, sortKey, sortDir])
+  }, [questions, filterStatus, filterSection, filterCategory, filterType, features, search, sortKey, sortDir])
 
-  const currentState = { sortKey, sortDir, filterStatus, filterSection, filterCategory, filterType, search }
+  const currentState = { sortKey, sortDir, filterStatus, filterSection, filterCategory, filterType, filterFeatures: features, search }
 
   // Sync sort/filter to URL so browser back button restores the view
   useEffect(() => {
     const qs = buildUrlParams(currentState)
     router.replace(`/admin/questions${qs}`, { scroll: false } as any)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortKey, sortDir, filterStatus, filterSection, filterCategory, filterType, search])
+  }, [sortKey, sortDir, filterStatus, filterSection, filterCategory, filterType, features, search])
 
   // Keep sessionStorage queue in sync so the edit page can do "Save & Next"
   useEffect(() => {
@@ -170,6 +177,7 @@ export default function QuestionsClient({ questions }: Props) {
               ))}
             </select>
           </div>
+          <FeatureFilterDropdown selected={features} onChange={setFeatures} />
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">Section</label>
             <select
@@ -228,7 +236,7 @@ export default function QuestionsClient({ questions }: Props) {
           ))}
           {filtered.length !== questions.length && (
             <button
-              onClick={() => { setFilterStatus('all'); setFilterSection(''); setFilterCategory(''); setFilterType(''); setSearch('') }}
+              onClick={() => { setFilterStatus('all'); setFilterSection(''); setFilterCategory(''); setFilterType(''); setFeatures(new Set()); setSearch('') }}
               className="ml-auto text-xs text-blue-600 hover:underline"
             >
               Clear filters ({filtered.length} shown)

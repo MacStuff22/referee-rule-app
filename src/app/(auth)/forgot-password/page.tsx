@@ -21,7 +21,7 @@ export default function ForgotPasswordPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [supabase] = useState(() => createClient())
-  const { captchaToken, containerRef, onScriptLoad, reset } = useTurnstile()
+  const { captchaToken, containerRef, reset } = useTurnstile()
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -51,11 +51,7 @@ export default function ForgotPasswordPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       {captchaConfigured && (
-        <Script
-          src="https://challenges.cloudflare.com/turnstile/v0/api.js"
-          strategy="afterInteractive"
-          onLoad={onScriptLoad}
-        />
+        <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" />
       )}
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
