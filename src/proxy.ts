@@ -27,7 +27,7 @@ export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Public routes — always allow
-  if (pathname.startsWith('/login') || pathname.startsWith('/accept-invite') || pathname.startsWith('/dev-qtype-test')) {
+  if (pathname.startsWith('/login') || pathname.startsWith('/accept-invite')) {
     return supabaseResponse
   }
 
