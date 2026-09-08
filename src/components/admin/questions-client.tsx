@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { LinkButton } from '@/components/ui/link-button'
 import { HANDBOOK_SECTIONS } from '@/lib/constants'
 import { compareSituationIds } from '@/lib/situationId'
+import { getQuestionMode, QUESTION_MODE_LABELS, type QuestionMode } from '@/lib/questionMode'
 import type { Question } from '@/types'
 
 type SortKey = 'status' | 'situation_id' | 'rule' | 'category' | 'section' | 'created'
@@ -16,7 +17,7 @@ const SECTION_OPTIONS = HANDBOOK_SECTIONS
 
 function buildUrlParams(state: {
   sortKey: SortKey; sortDir: SortDir; filterStatus: string
-  filterSection: string; filterCategory: string; search: string
+  filterSection: string; filterCategory: string; filterType: string; search: string
 }): string {
   const p = new URLSearchParams()
   if (state.sortKey !== 'created') p.set('sort', state.sortKey)
@@ -24,6 +25,7 @@ function buildUrlParams(state: {
   if (state.filterStatus !== 'all') p.set('status', state.filterStatus)
   if (state.filterSection) p.set('section', state.filterSection)
   if (state.filterCategory) p.set('cat', state.filterCategory)
+  if (state.filterType) p.set('type', state.filterType)
   if (state.search) p.set('q', state.search)
   const s = p.toString()
   return s ? `?${s}` : ''
@@ -44,6 +46,9 @@ export default function QuestionsClient({ questions }: Props) {
   )
   const [filterSection, setFilterSection] = useState(() => searchParams.get('section') ?? '')
   const [filterCategory, setFilterCategory] = useState(() => searchParams.get('cat') ?? '')
+  const [filterType, setFilterType] = useState<QuestionMode | ''>(
+    () => (searchParams.get('type') as QuestionMode) ?? ''
+  )
   const [sortKey, setSortKey] = useState<SortKey>(
     () => (searchParams.get('sort') as SortKey) ?? 'created'
   )
@@ -62,6 +67,7 @@ export default function QuestionsClient({ questions }: Props) {
       if (filterStatus === 'pending' && q.is_approved) return false
       if (filterSection && q.handbook_section !== filterSection) return false
       if (filterCategory && q.category !== filterCategory) return false
+      if (filterType && getQuestionMode(q) !== filterType) return false
       if (search) {
         const s = search.toLowerCase()
         const refs = (q.rule_references ?? []).join(' ').toLowerCase()
@@ -92,16 +98,16 @@ export default function QuestionsClient({ questions }: Props) {
     })
 
     return result
-  }, [questions, filterStatus, filterSection, filterCategory, search, sortKey, sortDir])
+  }, [questions, filterStatus, filterSection, filterCategory, filterType, search, sortKey, sortDir])
 
-  const currentState = { sortKey, sortDir, filterStatus, filterSection, filterCategory, search }
+  const currentState = { sortKey, sortDir, filterStatus, filterSection, filterCategory, filterType, search }
 
   // Sync sort/filter to URL so browser back button restores the view
   useEffect(() => {
     const qs = buildUrlParams(currentState)
     router.replace(`/admin/questions${qs}`, { scroll: false } as any)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortKey, sortDir, filterStatus, filterSection, filterCategory, search])
+  }, [sortKey, sortDir, filterStatus, filterSection, filterCategory, filterType, search])
 
   // Keep sessionStorage queue in sync so the edit page can do "Save & Next"
   useEffect(() => {
@@ -149,6 +155,19 @@ export default function QuestionsClient({ questions }: Props) {
               <option value="all">All</option>
               <option value="pending">Pending</option>
               <option value="approved">Approved</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">Question Type</label>
+            <select
+              className="w-full border rounded-md px-2 py-1.5 text-sm"
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as QuestionMode | '')}
+            >
+              <option value="">All Types</option>
+              {(Object.entries(QUESTION_MODE_LABELS) as [QuestionMode, string][]).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
             </select>
           </div>
           <div>
@@ -209,7 +228,7 @@ export default function QuestionsClient({ questions }: Props) {
           ))}
           {filtered.length !== questions.length && (
             <button
-              onClick={() => { setFilterStatus('all'); setFilterSection(''); setFilterCategory(''); setSearch('') }}
+              onClick={() => { setFilterStatus('all'); setFilterSection(''); setFilterCategory(''); setFilterType(''); setSearch('') }}
               className="ml-auto text-xs text-blue-600 hover:underline"
             >
               Clear filters ({filtered.length} shown)
@@ -241,6 +260,7 @@ export default function QuestionsClient({ questions }: Props) {
                   {(q.rule_references?.length ? q.rule_references : q.rule_number ? [q.rule_number] : []).map((ref) => (
                     <Badge key={ref} variant="outline" className="text-xs font-mono">Rule {ref}</Badge>
                   ))}
+                  <Badge variant="outline" className="text-xs">{QUESTION_MODE_LABELS[getQuestionMode(q)]}</Badge>
                   <Badge variant="outline" className="text-xs">{q.category}</Badge>
                   {q.handbook_section && (
                     <span className="text-xs text-gray-400">{q.handbook_section}</span>

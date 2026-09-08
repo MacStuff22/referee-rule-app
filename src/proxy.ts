@@ -23,13 +23,11 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user }, error } = await supabase.auth.getUser()
+  const { data: { user } } = await supabase.auth.getUser()
   const { pathname } = request.nextUrl
 
-  console.log('[proxy]', pathname, '| user:', user?.email ?? 'none', '| cookies:', request.cookies.getAll().map(c => c.name).join(', ') || 'none', '| error:', error?.message ?? 'none')
-
   // Public routes — always allow
-  if (pathname.startsWith('/login') || pathname.startsWith('/accept-invite')) {
+  if (pathname.startsWith('/login') || pathname.startsWith('/accept-invite') || pathname.startsWith('/dev-qtype-test')) {
     return supabaseResponse
   }
 
