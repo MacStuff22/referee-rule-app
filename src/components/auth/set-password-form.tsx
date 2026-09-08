@@ -35,6 +35,10 @@ export function SetPasswordForm({ title, description, submitLabel, loadingLabel 
     const code = new URLSearchParams(window.location.search).get('code')
     if (!code) return
 
+    // Entering the loading state immediately, before the async exchange
+    // starts, is correct here — not the render-derivable value the rule
+    // otherwise guards against.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setVerifying(true)
     supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
       setVerifying(false)
