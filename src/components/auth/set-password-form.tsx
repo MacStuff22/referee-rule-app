@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -23,6 +23,26 @@ export function SetPasswordForm({ title, description, submitLabel, loadingLabel 
   const [loading, setLoading] = useState(false)
   const router = useRouter()
   const [supabase] = useState(() => createClient())
+
+  // Password-reset links carry a PKCE `?code=` param that must be explicitly
+  // exchanged for a session. Invite links carry an implicit hash token that
+  // Supabase auto-detects instead, so there's nothing to do when no code is
+  // present in the URL.
+  const [verifying, setVerifying] = useState(false)
+  const [linkError, setLinkError] = useState('')
+
+  useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get('code')
+    if (!code) return
+
+    setVerifying(true)
+    supabase.auth.exchangeCodeForSession(code).then(({ error }) => {
+      setVerifying(false)
+      if (error) {
+        setLinkError('This link is invalid or has expired. Please request a new one.')
+      }
+    })
+  }, [supabase])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -49,6 +69,16 @@ export function SetPasswordForm({ title, description, submitLabel, loadingLabel 
     router.push('/dashboard')
   }
 
+  if (verifying) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
+        <Card className="w-full max-w-md">
+          <CardContent className="py-8 text-center text-gray-500">Verifying link…</CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <Card className="w-full max-w-md">
@@ -57,38 +87,44 @@ export function SetPasswordForm({ title, description, submitLabel, loadingLabel 
           <CardDescription>{description}</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>{error}</AlertDescription>
-              </Alert>
-            )}
-            <div className="space-y-2">
-              <Label htmlFor="password">New Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="At least 8 characters"
-                required
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="confirm">Confirm Password</Label>
-              <Input
-                id="confirm"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Repeat your password"
-                required
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? loadingLabel : submitLabel}
-            </Button>
-          </form>
+          {linkError ? (
+            <Alert variant="destructive">
+              <AlertDescription>{linkError}</AlertDescription>
+            </Alert>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="password">New Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirm">Confirm Password</Label>
+                <Input
+                  id="confirm"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="Repeat your password"
+                  required
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading ? loadingLabel : submitLabel}
+              </Button>
+            </form>
+          )}
         </CardContent>
       </Card>
     </div>
