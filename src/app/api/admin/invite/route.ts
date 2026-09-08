@@ -31,7 +31,19 @@ export async function POST(request: Request) {
     redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/accept-invite`,
   })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 })
+  if (error) {
+    const alreadyRegistered = error.code === 'email_exists' || /already.*(registered|exists)/i.test(error.message)
+    if (alreadyRegistered) {
+      return NextResponse.json(
+        {
+          error:
+            'This email already has an account. If they\'re locked out, send them to the "Forgot your password?" link on the sign-in page instead of re-inviting them.',
+        },
+        { status: 409 }
+      )
+    }
+    return NextResponse.json({ error: error.message }, { status: 400 })
+  }
 
   return NextResponse.json({ success: true })
 }

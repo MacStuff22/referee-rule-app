@@ -2,35 +2,16 @@
 
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import Script from 'next/script'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
+import { useTurnstile, captchaConfigured } from '@/hooks/useTurnstile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-
-declare global {
-  interface Window {
-    turnstile?: {
-      render: (
-        container: HTMLElement,
-        options: {
-          sitekey: string
-          callback: (token: string) => void
-          'expired-callback'?: () => void
-        }
-      ) => string
-      reset: (widgetId?: string) => void
-    }
-  }
-}
-
-// Unset in local/dev environments that haven't configured a Turnstile site —
-// the form still works, it just doesn't require a captcha token.
-const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
-const captchaConfigured = Boolean(TURNSTILE_SITE_KEY)
 
 export default function LoginPage() {
   const [email, setEmail] = useState('')
@@ -38,23 +19,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [supabase] = useState(() => createClient())
-
-  const [captchaToken, setCaptchaToken] = useState('')
-  const [captchaScriptLoaded, setCaptchaScriptLoaded] = useState(false)
-  const turnstileContainerRef = useRef<HTMLDivElement>(null)
-  const widgetIdRef = useRef<string>(undefined)
-
-  useEffect(() => {
-    if (!captchaScriptLoaded || !turnstileContainerRef.current || widgetIdRef.current || !window.turnstile) {
-      return
-    }
-
-    widgetIdRef.current = window.turnstile.render(turnstileContainerRef.current, {
-      sitekey: TURNSTILE_SITE_KEY!,
-      callback: setCaptchaToken,
-      'expired-callback': () => setCaptchaToken(''),
-    })
-  }, [captchaScriptLoaded])
+  const { captchaToken, containerRef, onScriptLoad, reset } = useTurnstile()
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault()
@@ -70,8 +35,7 @@ export default function LoginPage() {
     if (error) {
       setError('Invalid email or password.')
       setLoading(false)
-      setCaptchaToken('')
-      window.turnstile?.reset(widgetIdRef.current)
+      reset()
       return
     }
 
@@ -84,7 +48,7 @@ export default function LoginPage() {
         <Script
           src="https://challenges.cloudflare.com/turnstile/v0/api.js"
           strategy="afterInteractive"
-          onLoad={() => setCaptchaScriptLoaded(true)}
+          onLoad={onScriptLoad}
         />
       )}
       <Card className="w-full max-w-md">
@@ -121,7 +85,7 @@ export default function LoginPage() {
                 required
               />
             </div>
-            {captchaConfigured && <div ref={turnstileContainerRef} />}
+            {captchaConfigured && <div ref={containerRef} />}
             <Button
               type="submit"
               className="w-full"
@@ -130,7 +94,12 @@ export default function LoginPage() {
               {loading ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
-          <p className="text-center text-sm text-gray-500 mt-4">
+          <p className="text-center text-sm mt-4">
+            <Link href="/forgot-password" className="text-gray-600 underline hover:text-gray-900">
+              Forgot your password?
+            </Link>
+          </p>
+          <p className="text-center text-sm text-gray-500 mt-2">
             Access is by invitation only.
           </p>
         </CardContent>
