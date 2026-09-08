@@ -48,3 +48,8 @@ export const QUESTION_FEATURES: QuestionFeatureDef[] = [
     matches: hasPenaltyTable,
   },
 ]
+
+/** True if `q` matches any of the selected feature ids — the shared predicate behind the Question Features filter, wherever it's offered. */
+export function matchesAnyFeature(q: Question, selectedIds: Set<string>): boolean {
+  return QUESTION_FEATURES.some((f) => selectedIds.has(f.id) && f.matches(q))
+}

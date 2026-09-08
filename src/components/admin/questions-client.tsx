@@ -8,7 +8,7 @@ import { LinkButton } from '@/components/ui/link-button'
 import { HANDBOOK_SECTIONS } from '@/lib/constants'
 import { compareSituationIds } from '@/lib/situationId'
 import { getQuestionMode, QUESTION_MODE_LABELS, type QuestionMode } from '@/lib/questionMode'
-import { QUESTION_FEATURES } from '@/lib/questionFeatures'
+import { QUESTION_FEATURES, matchesAnyFeature } from '@/lib/questionFeatures'
 import { FeatureFilterDropdown } from '@/components/admin/feature-filter-dropdown'
 import type { Question } from '@/types'
 
@@ -52,9 +52,10 @@ export default function QuestionsClient({ questions }: Props) {
   const [filterType, setFilterType] = useState<QuestionMode | ''>(
     () => (searchParams.get('type') as QuestionMode) ?? ''
   )
-  const [features, setFeatures] = useState<Set<string>>(
-    () => new Set((searchParams.get('features') ?? '').split(',').filter(Boolean))
-  )
+  const [features, setFeatures] = useState<Set<string>>(() => {
+    const knownIds = new Set(QUESTION_FEATURES.map((f) => f.id))
+    return new Set((searchParams.get('features') ?? '').split(',').filter((id) => knownIds.has(id)))
+  })
   const [sortKey, setSortKey] = useState<SortKey>(
     () => (searchParams.get('sort') as SortKey) ?? 'created'
   )
@@ -74,7 +75,7 @@ export default function QuestionsClient({ questions }: Props) {
       if (filterSection && q.handbook_section !== filterSection) return false
       if (filterCategory && q.category !== filterCategory) return false
       if (filterType && getQuestionMode(q) !== filterType) return false
-      if (features.size > 0 && !QUESTION_FEATURES.some((f) => features.has(f.id) && f.matches(q))) return false
+      if (features.size > 0 && !matchesAnyFeature(q, features)) return false
       if (search) {
         const s = search.toLowerCase()
         const refs = (q.rule_references ?? []).join(' ').toLowerCase()

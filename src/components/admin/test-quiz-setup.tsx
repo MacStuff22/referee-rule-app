@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { HANDBOOK_SECTIONS } from '@/lib/constants'
 import { getQuestionMode, QUESTION_MODE_LABELS, type QuestionMode } from '@/lib/questionMode'
-import { QUESTION_FEATURES } from '@/lib/questionFeatures'
+import { matchesAnyFeature } from '@/lib/questionFeatures'
 import { FeatureFilterDropdown } from '@/components/admin/feature-filter-dropdown'
 import { compareSituationIds } from '@/lib/situationId'
 import type { League, Question } from '@/types'
@@ -61,7 +61,7 @@ export function TestQuizSetup({ questions, onStart }: Props) {
       if (situationId && q.situation_id !== situationId) return false
       if (category && q.category !== category) return false
       if (league && !q.league.includes(league)) return false
-      if (features.size > 0 && !QUESTION_FEATURES.some((f) => features.has(f.id) && f.matches(q))) return false
+      if (features.size > 0 && !matchesAnyFeature(q, features)) return false
       if (search) {
         const s = search.toLowerCase()
         return (
