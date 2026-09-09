@@ -16,6 +16,12 @@ interface SetPasswordFormProps {
   loadingLabel: string
 }
 
+// Supabase's client auto-detects and consumes both link styles on page load
+// — the invite flow's #access_token= hash and the password-reset flow's
+// ?code= PKCE param — before any of our own code runs. Don't add a manual
+// exchangeCodeForSession() call here: it races the automatic one for the
+// same single-use code and fails on it, showing a false "invalid link"
+// error over a session that actually already succeeded.
 export function SetPasswordForm({ title, description, submitLabel, loadingLabel }: SetPasswordFormProps) {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
