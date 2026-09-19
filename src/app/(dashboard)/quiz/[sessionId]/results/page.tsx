@@ -84,7 +84,7 @@ export default async function ResultsPage({ params }: Props) {
                           {partCorrect ? '✅' : '❌'} Part {sqIdx + 1}: {sq.text}
                         </p>
                         {!partCorrect && (
-                          <p className="text-gray-600">
+                          <p className="text-gray-600 whitespace-pre-line">
                             <span className="font-medium">Correct answer: </span>
                             {sq.correct_answers.map((idx: number) => sq.options[idx]).join(', ')}
                             {userAnswerArr.length > 0 && (
@@ -172,7 +172,7 @@ export default async function ResultsPage({ params }: Props) {
               </CardHeader>
               {!a.is_correct && (
                 <CardContent className="px-4 pb-4 text-sm text-gray-600 space-y-1">
-                  <p><span className="font-medium">Correct answer: </span>
+                  <p className="whitespace-pre-line"><span className="font-medium">Correct answer: </span>
                     {q?.correct_answers?.map((idx: number) => q.options[idx]).join(', ')}
                   </p>
                   <p><span className="font-medium">📖 </span>{q?.rationale}</p>

@@ -231,7 +231,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
                   <span className="w-1.5 h-1.5 rounded-full bg-white" />
                 ))}
               </span>
-              <span>
+              <span className="whitespace-pre-line">
                 <span className="font-medium mr-2">{String.fromCharCode(65 + displayIdx)}.</span>
                 {renderOptionText(opt)}
               </span>
