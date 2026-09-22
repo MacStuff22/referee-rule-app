@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
@@ -21,10 +21,7 @@ export async function POST(request: Request) {
   const { email, full_name } = await request.json()
 
   // Use service role key to send invite (bypasses RLS)
-  const adminSupabase = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const adminSupabase = createAdminClient()
 
   const { data, error } = await adminSupabase.auth.admin.inviteUserByEmail(email, {
     data: { full_name },

@@ -1,16 +1,13 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import InviteForm from '@/components/admin/invite-form'
 import type { Profile } from '@/types'
 
 export default async function UsersPage() {
-  const adminSupabase = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const adminSupabase = createAdminClient()
 
   const { data: users } = await adminSupabase
     .from('profiles')

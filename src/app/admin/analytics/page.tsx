@@ -1,6 +1,6 @@
 export const dynamic = 'force-dynamic'
 
-import { createClient as createAdminClient } from '@supabase/supabase-js'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { classifyMastery, type MasteryStatus } from '@/lib/quiz/mastery'
@@ -16,10 +16,7 @@ interface MasteryRow {
 }
 
 export default async function AdminAnalyticsPage() {
-  const supabase = createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
+  const supabase = createAdminClient()
 
   const [{ data: users }, { data: masteryRows }, { data: paths }] = await Promise.all([
     supabase.from('profiles').select('*').order('full_name'),
