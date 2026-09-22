@@ -219,11 +219,11 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
               disabled={isAnswered}
               role={isMultiSelect ? 'checkbox' : 'radio'}
               aria-checked={isSelected}
-              className={`w-full text-left px-4 py-3 rounded-lg border-2 text-sm transition-all flex items-center gap-3 ${style}`}
+              className={`w-full text-left px-4 py-3 rounded-lg border-2 text-sm transition-all flex items-start gap-3 ${style}`}
             >
               <span
                 aria-hidden="true"
-                className={`shrink-0 flex items-center justify-center w-4 h-4 border-2 ${isMultiSelect ? 'rounded' : 'rounded-full'} ${glyphStyle}`}
+                className={`shrink-0 flex items-center justify-center w-4 h-4 mt-0.5 border-2 ${isMultiSelect ? 'rounded' : 'rounded-full'} ${glyphStyle}`}
               >
                 {isSelected && (isMultiSelect ? (
                   <Check className="h-3 w-3 text-white" strokeWidth={3} />
@@ -231,9 +231,9 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
                   <span className="w-1.5 h-1.5 rounded-full bg-white" />
                 ))}
               </span>
-              <span className="whitespace-pre-line">
-                <span className="font-medium mr-2">{String.fromCharCode(65 + displayIdx)}.</span>
-                {renderOptionText(opt)}
+              <span className="flex gap-2 whitespace-pre-line">
+                <span className="font-medium shrink-0">{String.fromCharCode(65 + displayIdx)}.</span>
+                <span className="min-w-0">{renderOptionText(opt)}</span>
               </span>
             </button>
           )
