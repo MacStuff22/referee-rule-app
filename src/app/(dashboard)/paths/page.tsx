@@ -57,8 +57,15 @@ export default async function PathsPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <div>
-                  <div className="w-full bg-gray-100 rounded-full h-2">
+                  <div className="relative w-full bg-gray-100 rounded-full h-2">
                     <div className="h-2 rounded-full bg-slate-900" style={{ width: `${progress.percent}%` }} />
+                    {path.status === 'active' && (
+                      <div
+                        className="absolute -top-1 -bottom-1 w-0.5 rounded-full bg-amber-500"
+                        style={{ left: `${progress.expectedPercent}%` }}
+                        title={`Expected by today: ${progress.expectedCount} of ${progress.poolSize}`}
+                      />
+                    )}
                   </div>
                   <p className="text-xs text-gray-400 mt-1">
                     {progress.coveredCount} of {progress.poolSize} questions covered · target {new Date(path.target_end_date).toLocaleDateString()}

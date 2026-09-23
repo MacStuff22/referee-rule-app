@@ -19,6 +19,9 @@ export interface PathProgress {
   coveredCount: number
   percent: number
   paceStatus: PaceStatus
+  /** Questions you'd have covered by today if you were exactly on pace — drives the pace marker on the progress bar. */
+  expectedCount: number
+  expectedPercent: number
 }
 
 export const PACE_LABEL: Record<PaceStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' }> = {
@@ -78,5 +81,8 @@ export async function getPathProgress(supabase: SupabaseClient, path: QuizPath):
     paceStatus = 'behind'
   }
 
-  return { poolSize, coveredCount, percent, paceStatus }
+  const expectedCount = Math.min(expectedByNow, poolSize)
+  const expectedPercent = poolSize > 0 ? Math.round((expectedCount / poolSize) * 100) : 0
+
+  return { poolSize, coveredCount, percent, paceStatus, expectedCount, expectedPercent }
 }

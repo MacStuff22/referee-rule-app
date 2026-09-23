@@ -57,12 +57,25 @@ export default async function PathDetailPage({ params }: Props) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <div className="w-full bg-gray-100 rounded-full h-3">
+            <div className="relative w-full bg-gray-100 rounded-full h-3">
               <div className="h-3 rounded-full bg-slate-900" style={{ width: `${progress.percent}%` }} />
+              {typedPath.status === 'active' && (
+                <div
+                  className="absolute -top-1 -bottom-1 w-0.5 rounded-full bg-amber-500"
+                  style={{ left: `${progress.expectedPercent}%` }}
+                  title={`Expected by today: ${progress.expectedCount} of ${progress.poolSize}`}
+                />
+              )}
             </div>
             <p className="text-sm text-gray-500 mt-2">
               {progress.coveredCount} of {progress.poolSize} questions covered ({progress.percent}%)
             </p>
+            {typedPath.status === 'active' && (
+              <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full bg-amber-500 shrink-0" aria-hidden="true" />
+                Amber line marks where you&apos;d be on pace — {progress.expectedCount} of {progress.poolSize} by today
+              </p>
+            )}
           </div>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
