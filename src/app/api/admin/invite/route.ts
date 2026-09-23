@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { friendlyAuthError } from '@/lib/supabase/errorMessage'
 import { NextResponse } from 'next/server'
 
 export async function POST(request: Request) {
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
         { status: 409 }
       )
     }
-    return NextResponse.json({ error: error.message }, { status: 400 })
+    return NextResponse.json({ error: friendlyAuthError(error) }, { status: 400 })
   }
 
   return NextResponse.json({ success: true })
