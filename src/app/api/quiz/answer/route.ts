@@ -6,8 +6,15 @@ import { classifyMastery, updateEma, nextRefreshInterval, MASTERY_CONFIG } from 
 
 export async function POST(request: Request) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // The middleware (src/proxy.ts) already calls getUser() on every request
+  // and forwards the verified id here -- re-checking it again would be a
+  // second, redundant round trip to the Auth server. RLS on quiz_sessions/
+  // quiz_answers/questions still independently enforces per-user access
+  // regardless of this header, so this is purely a latency win, not a new
+  // trust boundary.
+  const userId = request.headers.get('x-verified-user-id')
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { sessionId, questionId, selectedAnswers } = await request.json()
   if (!sessionId || !questionId) {
@@ -18,7 +25,7 @@ export async function POST(request: Request) {
   // only the validation below does — so run them concurrently instead of
   // paying for two round trips back to back.
   const [{ data: session }, { data: question }] = await Promise.all([
-    supabase.from('quiz_sessions').select('*').eq('id', sessionId).eq('user_id', user.id).single(),
+    supabase.from('quiz_sessions').select('*').eq('id', sessionId).eq('user_id', userId).single(),
     supabase.from('questions').select('*').eq('id', questionId).single(),
   ])
 
@@ -65,7 +72,7 @@ export async function POST(request: Request) {
     const { data: existingMastery } = await supabase
       .from('user_category_mastery')
       .select('ema_score, total_answered, refresh_interval_days')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('category', question.category)
       .maybeSingle()
 
@@ -82,7 +89,7 @@ export async function POST(request: Request) {
     const adminSupabase = createAdminClient()
     await adminSupabase.from('user_category_mastery').upsert(
       {
-        user_id: user.id,
+        user_id: userId,
         category: question.category,
         ema_score: updateEma(priorEma, isCorrect),
         total_answered: priorTotal + 1,
