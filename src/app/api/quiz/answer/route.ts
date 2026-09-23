@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { scoreAnswer } from '@/lib/quiz/scoring'
 import { classifyMastery, updateEma, nextRefreshInterval, MASTERY_CONFIG } from '@/lib/quiz/mastery'
 
@@ -14,13 +14,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'sessionId and questionId are required' }, { status: 400 })
   }
 
-  // Ownership + existence in one check.
-  const { data: session } = await supabase
-    .from('quiz_sessions')
-    .select('*')
-    .eq('id', sessionId)
-    .eq('user_id', user.id)
-    .single()
+  // Session ownership check and question fetch don't depend on each other —
+  // only the validation below does — so run them concurrently instead of
+  // paying for two round trips back to back.
+  const [{ data: session }, { data: question }] = await Promise.all([
+    supabase.from('quiz_sessions').select('*').eq('id', sessionId).eq('user_id', user.id).single(),
+    supabase.from('questions').select('*').eq('id', questionId).single(),
+  ])
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
   if (session.completed_at) {
@@ -29,12 +29,6 @@ export async function POST(request: Request) {
   if (session.question_ids[session.current_index] !== questionId) {
     return NextResponse.json({ error: 'Question is not the session\'s current question' }, { status: 400 })
   }
-
-  const { data: question } = await supabase
-    .from('questions')
-    .select('*')
-    .eq('id', questionId)
-    .single()
 
   if (!question) return NextResponse.json({ error: 'Question not found' }, { status: 404 })
 
@@ -63,37 +57,42 @@ export async function POST(request: Request) {
   }
 
   // Best-effort: update this user's recency-weighted mastery for the
-  // question's category. Never blocks or fails the answer submission itself.
-  const { data: existingMastery } = await supabase
-    .from('user_category_mastery')
-    .select('ema_score, total_answered, refresh_interval_days')
-    .eq('user_id', user.id)
-    .eq('category', question.category)
-    .maybeSingle()
+  // question's category. Never blocks or fails the answer submission itself
+  // -- deferred via after() so it runs once the response has already gone
+  // out, instead of holding the client's correct/incorrect reveal hostage
+  // to two more round trips it doesn't need.
+  after(async () => {
+    const { data: existingMastery } = await supabase
+      .from('user_category_mastery')
+      .select('ema_score, total_answered, refresh_interval_days')
+      .eq('user_id', user.id)
+      .eq('category', question.category)
+      .maybeSingle()
 
-  const priorEma = existingMastery?.ema_score ?? 0.5
-  const priorTotal = existingMastery?.total_answered ?? 0
-  const priorInterval = existingMastery?.refresh_interval_days ?? MASTERY_CONFIG.baseRefreshIntervalDays
-  const wasMastered = classifyMastery(priorTotal, priorEma) === 'mastered'
+    const priorEma = existingMastery?.ema_score ?? 0.5
+    const priorTotal = existingMastery?.total_answered ?? 0
+    const priorInterval = existingMastery?.refresh_interval_days ?? MASTERY_CONFIG.baseRefreshIntervalDays
+    const wasMastered = classifyMastery(priorTotal, priorEma) === 'mastered'
 
-  // Written via the service-role client, not the user's own request-scoped
-  // one: ema_score/total_answered are trusted derived values (see the
-  // comment on isCorrect above), and RLS no longer grants regular users any
-  // insert/update on this table -- see supabase-migration-quiz-progress-
-  // integrity.sql.
-  const adminSupabase = createAdminClient()
-  await adminSupabase.from('user_category_mastery').upsert(
-    {
-      user_id: user.id,
-      category: question.category,
-      ema_score: updateEma(priorEma, isCorrect),
-      total_answered: priorTotal + 1,
-      last_answered_at: new Date().toISOString(),
-      refresh_interval_days: wasMastered ? nextRefreshInterval(priorInterval, isCorrect) : priorInterval,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: 'user_id,category' }
-  )
+    // Written via the service-role client, not the user's own request-scoped
+    // one: ema_score/total_answered are trusted derived values (see the
+    // comment on isCorrect above), and RLS no longer grants regular users any
+    // insert/update on this table -- see supabase-migration-quiz-progress-
+    // integrity.sql.
+    const adminSupabase = createAdminClient()
+    await adminSupabase.from('user_category_mastery').upsert(
+      {
+        user_id: user.id,
+        category: question.category,
+        ema_score: updateEma(priorEma, isCorrect),
+        total_answered: priorTotal + 1,
+        last_answered_at: new Date().toISOString(),
+        refresh_interval_days: wasMastered ? nextRefreshInterval(priorInterval, isCorrect) : priorInterval,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id,category' }
+    )
+  })
 
   return NextResponse.json({ isCorrect })
 }
