@@ -602,7 +602,14 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
         <div className="space-y-1">
           {renderSelectedCount(question.answer_type)}
           <Button onClick={submitAnswer} disabled={selected.length === 0 || submitting} className="w-full" size="lg">
-            Submit Answer
+            {submitting ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Submitting…
+              </>
+            ) : (
+              'Submit Answer'
+            )}
           </Button>
         </div>
       ) : (
