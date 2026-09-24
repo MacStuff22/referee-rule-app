@@ -37,22 +37,55 @@ function oneDayBefore(date: Date): Date {
   return d
 }
 
+export interface PathAnswerRecord {
+  questionId: string
+  answeredAt: string
+}
+
+/**
+ * Every question this user has actually answered within this path, in the
+ * order they answered it — independent of whether the session that
+ * presented it was ever marked complete. This is the real source of truth
+ * for "covered": a session's `question_ids` only reflects what was ever
+ * *assigned* to it, and an early exit (see quiz/[sessionId]/page.tsx's
+ * handleExit) still marks the session `completed_at` without having shown
+ * the user the rest of that list.
+ */
+export async function getPathAnswers(
+  supabase: SupabaseClient,
+  pathId: string,
+  userId: string
+): Promise<PathAnswerRecord[]> {
+  const { data, error } = await supabase
+    .from('quiz_answers')
+    .select('question_id, answered_at, quiz_sessions!inner(path_id, user_id)')
+    .eq('quiz_sessions.path_id', pathId)
+    .eq('quiz_sessions.user_id', userId)
+    .order('answered_at', { ascending: true })
+
+  if (error) throw new Error(`Failed to resolve path answers: ${error.message}`)
+  return (data ?? []).map((row) => ({
+    questionId: row.question_id as string,
+    answeredAt: row.answered_at as string,
+  }))
+}
+
+export async function getCoveredQuestionIds(
+  supabase: SupabaseClient,
+  pathId: string,
+  userId: string
+): Promise<Set<string>> {
+  const answers = await getPathAnswers(supabase, pathId, userId)
+  return new Set(answers.map((a) => a.questionId))
+}
+
 export async function getPathProgress(supabase: SupabaseClient, path: QuizPath): Promise<PathProgress> {
   const poolIds: string[] = path.pool_question_ids
 
   const liveQuestions = await fetchLivePoolQuestions(supabase, poolIds)
   const livePoolIds = liveQuestions.map((q) => q.id)
 
-  const { data: completedSessions } = await supabase
-    .from('quiz_sessions')
-    .select('question_ids')
-    .eq('path_id', path.id)
-    .not('completed_at', 'is', null)
-
-  const covered = new Set<string>()
-  for (const s of completedSessions ?? []) {
-    for (const id of (s.question_ids as string[]) ?? []) covered.add(id)
-  }
+  const covered = await getCoveredQuestionIds(supabase, path.id, path.user_id)
 
   const coveredCount = livePoolIds.filter((id) => covered.has(id)).length
   const poolSize = livePoolIds.length

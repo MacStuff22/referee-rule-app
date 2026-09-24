@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { weightForCategory, MASTERY_CONFIG, type CategoryMasteryRow } from '@/lib/quiz/mastery'
 import { remainingScheduledDays, reflowPace, reservedCoverageSlots, computeTargetEndDate } from '@/lib/quiz/paths'
 import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
+import { getPathAnswers } from '@/lib/quiz/pathProgress'
 import { weightedSampleWithoutReplacement } from '@/lib/quiz/sampling'
 import {
   getAllSuppressionMatches,
@@ -70,22 +71,11 @@ export async function POST(request: Request, { params }: Params) {
   const situationIdById = new Map(liveQuestions.map((q) => [q.id, q.situation_id]))
   const livePoolIds = liveQuestions.map((q) => q.id)
 
-  // Ordered ascending so concatenating question_ids below reflects the
-  // actual chronological sequence of questions seen across this path's days
-  // — needed to compute the cumulative-position gap for situation matches.
-  const { data: completedSessions } = await supabase
-    .from('quiz_sessions')
-    .select('question_ids')
-    .eq('path_id', pathId)
-    .eq('user_id', user.id)
-    .not('completed_at', 'is', null)
-    .order('started_at', { ascending: true })
-
-  const covered = new Set<string>()
-  for (const s of completedSessions ?? []) {
-    for (const id of (s.question_ids as string[]) ?? []) covered.add(id)
-  }
-
+  // Answer-based, not session-based: a session's question_ids only reflects
+  // what was ever *assigned* to it, and an early exit still marks the
+  // session completed without the user having seen the rest of that list.
+  const pathAnswers = await getPathAnswers(supabase, pathId, user.id)
+  const covered = new Set(pathAnswers.map((a) => a.questionId))
   const uncoveredPool = livePoolIds.filter((id) => !covered.has(id))
 
   const now = new Date()
@@ -120,9 +110,8 @@ export async function POST(request: Request, { params }: Params) {
   // final shuffle, so it holds regardless of shuffle order.
   const suppressionMatches = await getAllSuppressionMatches(supabase)
   const adjacency = buildSuppressionAdjacency(suppressionMatches)
-  const cumulativeSituations = (completedSessions ?? [])
-    .flatMap((s) => (s.question_ids as string[]) ?? [])
-    .map((id) => situationIdById.get(id))
+  const cumulativeSituations = pathAnswers
+    .map((a) => situationIdById.get(a.questionId))
     .filter((s): s is string => !!s)
   const preExcluded = computeBlanketExclusion(trailingWindowSituations(cumulativeSituations), adjacency)
   const tracker = createSituationExclusionTracker({
