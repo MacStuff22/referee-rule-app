@@ -24,6 +24,22 @@ There is no CI pipeline in this repo — `npm run build` succeeding locally is t
 
 This project has no `git push` step performed by Claude. Morgan syncs commits to GitHub via GitHub Desktop (this appears to happen automatically/quickly after a local commit — verify with `git fetch && git log origin/main..HEAD` before assuming something is unpushed). Vercel auto-deploys from GitHub `main`. Production is at `https://referee-rule-app.vercel.app/`. If a change isn't showing in production after being committed, check the Vercel dashboard's Deployments tab for build failures rather than assuming the push didn't happen.
 
+## Testing as a logged-in user
+
+The real `/login` page requires solving a Cloudflare Turnstile CAPTCHA — that's intentional and stays untouched — but it means an automated browser session can never get through it, and there's no test credential to type into it anyway.
+
+Instead, skip straight past login the same way an invite-email link already works:
+
+```bash
+node --env-file=.env.local scripts/setup-test-accounts.mjs       # one-time: creates the two test accounts below
+node --env-file=.env.local scripts/get-test-login-link.mjs user   # prints a link that logs in as the plain-user test account
+node --env-file=.env.local scripts/get-test-login-link.mjs admin  # prints a link that logs in as the admin test account
+```
+
+Open the printed link directly in a browser — it briefly passes through `/test-login` (a public route, same trust model as `/accept-invite`/`/reset-password`, added to the `proxy.ts` allowlist for this purpose — see `src/app/(auth)/test-login/page.tsx`) so the browser's Supabase client can read the session out of the URL before any server-side auth check runs, then lands on `/dashboard` (or `/admin/questions` for admin). No password, no CAPTCHA. This works via Supabase's Admin API (`generateLink`), the exact mechanism `src/app/api/admin/invite/route.ts` already uses to bypass Turnstile with the service-role key — nothing about the real login flow or Supabase's CAPTCHA settings changes.
+
+The two fixed test accounts (`claude-test-user@referee-rule-app.test`, `claude-test-admin@referee-rule-app.test`) live in the same database as real users for now — labeled unmistakably as test accounts. Don't delete or repurpose them; don't be surprised to see them in `/admin/users`.
+
 ## Development workflow
 
 For any non-trivial feature or fix, follow Explore → Plan → Code → Commit:
