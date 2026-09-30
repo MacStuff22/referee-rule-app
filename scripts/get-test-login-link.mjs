@@ -32,16 +32,17 @@ if (!email) {
   process.exit(1)
 }
 
-// Land on the public /test-login page first, not the real destination directly —
-// /dashboard and /admin are gated server-side before the browser ever gets a
-// chance to read the session out of the URL. See src/app/(auth)/test-login/page.tsx.
+// /dashboard and /admin are gated server-side, so rather than following
+// Supabase's hosted redirect link (which round-trips through the Supabase
+// domain and hands back a raw bearer token), we take the one-time
+// verification hash straight to our own public /test-login page, which
+// exchanges it for a real session via a same-origin verifyOtp() call. See
+// src/app/(auth)/test-login/page.tsx.
 const destination = redirectToArg ?? (which === 'admin' ? '/admin/questions' : '/dashboard')
-const redirectTo = `http://localhost:3000/test-login?next=${encodeURIComponent(destination)}`
 
 const { data, error } = await supabase.auth.admin.generateLink({
   type: 'magiclink',
   email,
-  options: { redirectTo },
 })
 
 if (error) {
@@ -49,4 +50,5 @@ if (error) {
   process.exit(1)
 }
 
-console.log(data.properties.action_link)
+const params = new URLSearchParams({ token_hash: data.properties.hashed_token, next: destination })
+console.log(`http://localhost:3000/test-login?${params}`)

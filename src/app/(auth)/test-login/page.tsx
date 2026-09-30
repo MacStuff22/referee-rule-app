@@ -6,25 +6,31 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
 // Public landing page for scripts/get-test-login-link.mjs. /dashboard and
-// /admin are gated server-side (proxy.ts + their layouts) before any
-// client-side JS runs, so a magic-link redirect straight to one of those
-// bounces to /login before the browser ever gets a chance to read the
-// #access_token= hash out of the URL. Landing here first — a public route,
-// same trust model as /accept-invite and /reset-password — lets Supabase's
-// browser client consume the hash and set real session cookies, then we
-// hand off to the real destination once a session actually exists.
+// /admin are gated server-side (proxy.ts + their layouts), so this page takes
+// a one-time verification hash (from Supabase's admin generateLink API) as a
+// query param and exchanges it for a real session via verifyOtp() — a plain
+// same-origin API call, never a redirect through Supabase's own domain and
+// never a raw bearer token passed around. Same trust model as /accept-invite
+// and /reset-password: public, but does nothing without a valid token.
 export default function TestLoginPage() {
   const [status, setStatus] = useState('Signing in…')
 
   useEffect(() => {
     const supabase = createClient()
-    const next = new URLSearchParams(window.location.search).get('next') || '/dashboard'
+    const params = new URLSearchParams(window.location.search)
+    const tokenHash = params.get('token_hash')
+    const next = params.get('next') || '/dashboard'
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        window.location.href = next
+    if (!tokenHash) {
+      setStatus('Missing token.')
+      return
+    }
+
+    supabase.auth.verifyOtp({ token_hash: tokenHash, type: 'magiclink' }).then(({ error }) => {
+      if (error) {
+        setStatus(`Sign-in failed: ${error.message}`)
       } else {
-        setStatus('No session found — the link may have expired or already been used.')
+        window.location.href = next
       }
     })
   }, [])
