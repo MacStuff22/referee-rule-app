@@ -407,12 +407,12 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
           <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Situation</p>
           {compoundSplit ? (
             <>
-              {compoundSplit.before && <p className="text-sm text-blue-900 leading-relaxed">{compoundSplit.before}</p>}
+              {compoundSplit.before && <p className="text-sm text-blue-900 leading-relaxed whitespace-pre-line">{compoundSplit.before}</p>}
               <PenaltyTableBlock penA={compoundPenA} penB={compoundPenB} />
-              {compoundSplit.after && <p className="text-sm text-blue-900 leading-relaxed">{compoundSplit.after}</p>}
+              {compoundSplit.after && <p className="text-sm text-blue-900 leading-relaxed whitespace-pre-line">{compoundSplit.after}</p>}
             </>
           ) : (
-            <p className="text-sm text-blue-900 leading-relaxed">{stripPenaltyTableMarker(question.text)}</p>
+            <p className="text-sm text-blue-900 leading-relaxed whitespace-pre-line">{stripPenaltyTableMarker(question.text)}</p>
           )}
         </div>
 
@@ -438,7 +438,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
 
         <Card>
           <CardContent className="pt-6">
-            <p className="font-medium text-gray-900 text-base leading-relaxed mb-1">{subQ.text}</p>
+            <p className="font-medium text-gray-900 text-base leading-relaxed mb-1 whitespace-pre-line">{subQ.text}</p>
             {subQ.answer_type === 'multi_select' && <MultiSelectHint />}
             {renderOptions(subQ.options, subQ.correct_answers, shuffleOrder, subQ.answer_type === 'multi_select')}
           </CardContent>
@@ -450,7 +450,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
               <p className={`font-semibold ${answerState === 'correct' ? 'text-green-800' : 'text-red-800'}`}>
                 {answerState === 'correct' ? '✅ Correct!' : '❌ Not quite.'}
               </p>
-              <p className="text-sm text-gray-700">
+              <p className="text-sm text-gray-700 whitespace-pre-line">
                 <span className="font-medium">📖 Rationale: </span>{subQ.rationale}
               </p>
               <p className="text-sm text-gray-500">
@@ -513,7 +513,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
         {/* Situation */}
         <div className="rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3">
           <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Situation</p>
-          <p className="text-sm text-blue-900 leading-relaxed">{question.text}</p>
+          <p className="text-sm text-blue-900 leading-relaxed whitespace-pre-line">{question.text}</p>
         </div>
 
         <ScoreboardSimulator
@@ -555,14 +555,14 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
         <CardContent className="pt-6">
           {split ? (
             <>
-              {split.before && <p className="font-medium text-gray-900 text-base leading-relaxed mb-3">{split.before}</p>}
+              {split.before && <p className="font-medium text-gray-900 text-base leading-relaxed mb-3 whitespace-pre-line">{split.before}</p>}
               <div className="mb-3">
                 <PenaltyTableBlock penA={penA} penB={penB} />
               </div>
-              {split.after && <p className="font-medium text-gray-900 text-base leading-relaxed mb-1">{split.after}</p>}
+              {split.after && <p className="font-medium text-gray-900 text-base leading-relaxed mb-1 whitespace-pre-line">{split.after}</p>}
             </>
           ) : (
-            <p className="font-medium text-gray-900 text-base leading-relaxed mb-1">
+            <p className="font-medium text-gray-900 text-base leading-relaxed mb-1 whitespace-pre-line">
               {stripPenaltyTableMarker(question.text)}
             </p>
           )}
@@ -583,7 +583,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
             <p className={`font-semibold ${answerState === 'correct' ? 'text-green-800' : 'text-red-800'}`}>
               {answerState === 'correct' ? '✅ Correct!' : '❌ Not quite.'}
             </p>
-            <p className="text-sm text-gray-700">
+            <p className="text-sm text-gray-700 whitespace-pre-line">
               <span className="font-medium">📖 Rationale: </span>{question.rationale}
             </p>
             <p className="text-sm text-gray-500">

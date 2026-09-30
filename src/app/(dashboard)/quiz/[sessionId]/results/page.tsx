@@ -65,7 +65,7 @@ export default async function ResultsPage({ params }: Props) {
               <Card key={a.id} className={allPartsCorrect ? 'border-green-200' : 'border-red-200'}>
                 <CardHeader className="pb-2 pt-4 px-4">
                   <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-sm font-medium leading-relaxed">
+                    <CardTitle className="text-sm font-medium leading-relaxed whitespace-pre-line">
                       {i + 1}. {q?.text}
                     </CardTitle>
                     <Badge variant={allPartsCorrect ? 'default' : 'destructive'} className="shrink-0">
@@ -80,7 +80,7 @@ export default async function ResultsPage({ params }: Props) {
                     const partCorrect = sorted(userAnswerArr) === sorted(sq.correct_answers)
                     return (
                       <div key={sqIdx} className={`rounded-lg p-3 text-sm space-y-1 ${partCorrect ? 'bg-green-50' : 'bg-red-50'}`}>
-                        <p className="font-medium text-gray-800">
+                        <p className="font-medium text-gray-800 whitespace-pre-line">
                           {partCorrect ? '✅' : '❌'} Part {sqIdx + 1}: {sq.text}
                         </p>
                         {!partCorrect && (
@@ -94,7 +94,7 @@ export default async function ResultsPage({ params }: Props) {
                             )}
                           </p>
                         )}
-                        <p className="text-gray-500"><span className="font-medium">📖 </span>{sq.rationale}</p>
+                        <p className="text-gray-500 whitespace-pre-line"><span className="font-medium">📖 </span>{sq.rationale}</p>
                       </div>
                     )
                   })}
@@ -114,7 +114,7 @@ export default async function ResultsPage({ params }: Props) {
               <Card key={a.id} className={a.is_correct ? 'border-green-200' : 'border-red-200'}>
                 <CardHeader className="pb-2 pt-4 px-4">
                   <div className="flex items-center justify-between gap-2">
-                    <CardTitle className="text-sm font-medium leading-relaxed">
+                    <CardTitle className="text-sm font-medium leading-relaxed whitespace-pre-line">
                       {i + 1}. {q?.text}
                     </CardTitle>
                     <Badge variant={a.is_correct ? 'default' : 'destructive'} className="shrink-0">
@@ -151,7 +151,7 @@ export default async function ResultsPage({ params }: Props) {
                       </div>
                     )
                   })}
-                  <p className="text-gray-500 text-sm"><span className="font-medium">📖 </span>{q?.rationale}</p>
+                  <p className="text-gray-500 text-sm whitespace-pre-line"><span className="font-medium">📖 </span>{q?.rationale}</p>
                   <p className="text-xs text-gray-400">Rule {q?.rule_number} · {q?.category}</p>
                 </CardContent>
               </Card>
@@ -162,7 +162,7 @@ export default async function ResultsPage({ params }: Props) {
             <Card key={a.id} className={a.is_correct ? 'border-green-200' : 'border-red-200'}>
               <CardHeader className="pb-2 pt-4 px-4">
                 <div className="flex items-center justify-between gap-2">
-                  <CardTitle className="text-sm font-medium leading-relaxed">
+                  <CardTitle className="text-sm font-medium leading-relaxed whitespace-pre-line">
                     {i + 1}. {q?.text}
                   </CardTitle>
                   <Badge variant={a.is_correct ? 'default' : 'destructive'} className="shrink-0">
@@ -175,7 +175,7 @@ export default async function ResultsPage({ params }: Props) {
                   <p className="whitespace-pre-line"><span className="font-medium">Correct answer: </span>
                     {q?.correct_answers?.map((idx: number) => q.options[idx]).join(', ')}
                   </p>
-                  <p><span className="font-medium">📖 </span>{q?.rationale}</p>
+                  <p className="whitespace-pre-line"><span className="font-medium">📖 </span>{q?.rationale}</p>
                   <p className="text-gray-400">Rule {q?.rule_number} · {q?.category}</p>
                 </CardContent>
               )}

@@ -481,7 +481,7 @@ export function ScoreboardSimulator({
                   {answerState === 'correct' ? '✅ Correct!' : '❌ Not quite.'}
                 </p>
                 {rationale && (
-                  <p className="text-sm text-gray-700">
+                  <p className="text-sm text-gray-700 whitespace-pre-line">
                     <span className="font-medium">📖 Rationale: </span>{rationale}
                   </p>
                 )}
