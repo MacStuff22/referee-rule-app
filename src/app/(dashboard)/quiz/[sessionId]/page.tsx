@@ -72,17 +72,33 @@ export default function QuizSessionPage() {
     if (!session) return
     const nextIndex = session.current_index + 1
     const isLast = nextIndex >= session.question_ids.length
-    await supabase
+
+    // Compare-and-swap on current_index (the only column, besides
+    // completed_at, this client is granted update on) so a lost race with
+    // another tab/call on the same session resyncs from the real state
+    // instead of either double-advancing or silently re-showing a stale
+    // question. A genuine error (network blip, transient failure) throws
+    // instead of falling through — the question stays on screen rather
+    // than being silently re-served, which is what let the same question
+    // get answered twice in a row before this fix.
+    const { data, error } = await supabase
       .from('quiz_sessions')
       .update({
         current_index: nextIndex,
         ...(isLast ? { completed_at: new Date().toISOString() } : {}),
       })
       .eq('id', session.id)
+      .eq('current_index', session.current_index)
+      .select('id')
+      .maybeSingle()
+
+    if (error) throw error
+    if (!data) { await loadCurrentQuestion(); return }
+
     if (isLast) {
       router.push(`/quiz/${sessionId}/results`)
     } else {
-      loadCurrentQuestion()
+      await loadCurrentQuestion()
     }
   }
 

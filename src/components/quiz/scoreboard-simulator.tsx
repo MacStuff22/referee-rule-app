@@ -56,6 +56,8 @@ export interface ScoreboardSimulatorProps {
   /** Fired when advancing after submit — the live quiz moves to the next question. */
   onNext?: () => void
   nextLabel?: string
+  /** Disables the Next button while the parent's onNext is still in flight. */
+  nextPending?: boolean
 }
 
 export function ScoreboardSimulator({
@@ -72,6 +74,7 @@ export function ScoreboardSimulator({
   onSubmit,
   onNext,
   nextLabel = 'Next →',
+  nextPending = false,
 }: ScoreboardSimulatorProps) {
   const active = playerAnswers.filter((a) => !a.already_expired)
   const goalEvt = events.find((e) => e.type === 'goal')
@@ -503,7 +506,7 @@ export function ScoreboardSimulator({
             {!submitted ? (
               <Button onClick={submit} disabled={!allFilled || submitting} className="flex-1" size="lg">Submit Answer</Button>
             ) : onNext ? (
-              <Button onClick={onNext} className="flex-1" size="lg">{nextLabel}</Button>
+              <Button onClick={onNext} disabled={nextPending} className="flex-1" size="lg">{nextLabel}</Button>
             ) : (
               <div className="flex-1" />
             )}

@@ -142,6 +142,29 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
   // double-click/double-tap on "Submit anyway", which bypasses the normal button's guards.
   const submitLockRef = useRef(false)
 
+  // Guards onNext the same way submitLockRef guards submission -- unlike
+  // Submit, the Next/"See Results" button previously had no double-fire
+  // protection at all, which (combined with a lost-race current_index
+  // update) let the same question get answered twice in one session.
+  const nextLockRef = useRef(false)
+  const [advancing, setAdvancing] = useState(false)
+  const [nextError, setNextError] = useState<string | null>(null)
+
+  async function handleNextClick() {
+    if (nextLockRef.current) return
+    nextLockRef.current = true
+    setAdvancing(true)
+    setNextError(null)
+    try {
+      await onNext()
+    } catch {
+      setNextError("Couldn't continue — check your connection and try again.")
+    } finally {
+      setAdvancing(false)
+      nextLockRef.current = false
+    }
+  }
+
   // Standard question state
   const [selected, setSelected] = useState<number[]>([])
   const [answerState, setAnswerState] = useState<AnswerState>('unanswered')
@@ -475,9 +498,19 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
         ) : !isLastSubQ ? (
           <Button onClick={advanceSubQuestion} className="w-full" size="lg">Next Part →</Button>
         ) : (
-          <Button onClick={onNext} className="w-full" size="lg">
-            {nextLabel}
-          </Button>
+          <div className="space-y-1">
+            <Button onClick={handleNextClick} disabled={advancing} className="w-full" size="lg">
+              {advancing ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading…
+                </>
+              ) : (
+                nextLabel
+              )}
+            </Button>
+            {nextError && <p className="text-sm text-red-600">{nextError}</p>}
+          </div>
         )}
         {exitDialog}
         {confirmSingleDialog}
@@ -528,9 +561,11 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
           situationId={question.situation_id}
           revealAnswer
           onSubmit={saveScoreboardAnswer}
-          onNext={onNext}
+          onNext={handleNextClick}
           nextLabel={nextLabel}
+          nextPending={advancing}
         />
+        {nextError && <p className="text-sm text-red-600">{nextError}</p>}
         {exitDialog}
       </div>
     )
@@ -613,9 +648,19 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
           </Button>
         </div>
       ) : (
-        <Button onClick={onNext} className="w-full" size="lg">
-          {nextLabel}
-        </Button>
+        <div className="space-y-1">
+          <Button onClick={handleNextClick} disabled={advancing} className="w-full" size="lg">
+            {advancing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading…
+              </>
+            ) : (
+              nextLabel
+            )}
+          </Button>
+          {nextError && <p className="text-sm text-red-600">{nextError}</p>}
+        </div>
       )}
       {exitDialog}
       {confirmSingleDialog}
