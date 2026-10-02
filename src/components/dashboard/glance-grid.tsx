@@ -25,28 +25,30 @@ export function GlanceGrid({ tiles }: { tiles: GlanceTileSpec[] }) {
     <div className="space-y-3">
       <div>
         <h2 className="text-lg font-semibold text-gray-800">Today at a glance</h2>
-        <p className="text-sm text-gray-500">Click &ldquo;See details&rdquo; on a tile for the full picture.</p>
+        <p className="text-sm text-gray-500">Click any tile for the full picture.</p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map((t) => (
-          <article key={t.id} className="flex min-w-0 flex-col rounded-xl bg-white ring-1 ring-foreground/10">
-            <div className="flex items-center gap-2 px-4 pt-4">
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setOpenId(t.id)}
+            aria-haspopup="dialog"
+            className="group flex min-w-0 cursor-pointer flex-col rounded-xl bg-white text-left ring-1 ring-foreground/10 transition-shadow hover:shadow-md hover:ring-slate-900/30 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+          >
+            <span className="flex items-center gap-2 px-4 pt-4">
               <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">
                 {t.number}
               </span>
-              <h3 className="font-semibold text-gray-900">{t.title}</h3>
-            </div>
-            <div className="flex-1 px-4 py-3">{t.summary}</div>
-            <button
-              type="button"
-              onClick={() => setOpenId(t.id)}
-              className="flex w-full items-center justify-between rounded-b-xl border-t border-gray-100 px-4 py-2.5 text-left text-sm font-medium text-slate-900 hover:bg-gray-50"
-            >
+              <span className="font-semibold text-gray-900">{t.title}</span>
+            </span>
+            <span className="block w-full flex-1 px-4 py-3">{t.summary}</span>
+            <span className="flex w-full items-center justify-between rounded-b-xl border-t border-gray-100 px-4 py-2.5 text-sm font-medium text-slate-900 group-hover:bg-gray-50">
               See details
               <span aria-hidden>↗</span>
-            </button>
-          </article>
+            </span>
+          </button>
         ))}
       </div>
 

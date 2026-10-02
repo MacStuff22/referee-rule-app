@@ -43,10 +43,8 @@ export default async function DashboardPage() {
         <>
           <GlanceTiles data={data} />
           <StudyPlan items={data.studyPlan} />
-          <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
-            <MissedQuestions items={data.missed} />
-            {data.plans.length > 0 && <PlanPace plans={data.plans} />}
-          </div>
+          <MissedQuestions items={data.missed} />
+          {data.plans.length > 0 && <PlanPace plans={data.plans} />}
           <StrengthMap sections={data.strengthMap} />
         </>
       )}
