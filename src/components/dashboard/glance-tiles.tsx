@@ -8,13 +8,6 @@ import { ActivityCalendar } from './activity-calendar'
 import { Medal } from './medal'
 import { DeltaPill, LabeledBar, NotEnoughData, pct } from './primitives'
 
-const LABEL_STYLE: Record<string, string> = {
-  'Getting Started': 'bg-gray-100 text-gray-700',
-  Building: 'bg-amber-100 text-amber-800',
-  'On Track': 'bg-green-100 text-green-800',
-  'Exam Ready': 'bg-green-600 text-white',
-}
-
 function Why({ children }: { children: React.ReactNode }) {
   return <p className="text-sm text-gray-500">{children}</p>
 }
@@ -44,11 +37,8 @@ export function GlanceTiles({ data }: { data: DashboardData }) {
       title: 'Readiness Score',
       summary: (
         <div className="space-y-2">
-          <div className="flex items-center gap-3">
+          <div className="flex justify-center">
             <ReadinessDial score={readiness.score} size="small" />
-            {readiness.label && (
-              <span className={cn('rounded-full px-2.5 py-0.5 text-sm font-semibold', LABEL_STYLE[readiness.label])}>{readiness.label}</span>
-            )}
           </div>
           <Why>{readiness.score === null ? 'Answer a few more questions to get your score.' : 'Are you ready? One number answers it.'}</Why>
         </div>
@@ -56,15 +46,14 @@ export function GlanceTiles({ data }: { data: DashboardData }) {
       detail: (
         <div className="space-y-3">
           <Explain
-            what="A 0 to 100 score: Getting Started, Building, On Track, or Exam Ready."
+            what="A 0 to 100 score. Red is early days, yellow is building, and green means you're in good shape."
             why="It blends your recent accuracy, how much of the rulebook you've covered, and how fresh your knowledge is."
           />
           <div className="flex flex-wrap items-center gap-6">
-            <ReadinessDial score={readiness.score} />
-            <div className="min-w-56 flex-1 space-y-3">
-              {readiness.label && (
-                <span className={cn('inline-block rounded-full px-2.5 py-0.5 text-sm font-semibold', LABEL_STYLE[readiness.label])}>{readiness.label}</span>
-              )}
+            <div className="min-w-64 flex-1 basis-72">
+              <ReadinessDial score={readiness.score} />
+            </div>
+            <div className="min-w-56 flex-1 basis-64 space-y-3">
               {readiness.score === null ? (
                 <NotEnoughData>Your score appears once you have {10} answers in the last 30 days.</NotEnoughData>
               ) : (
