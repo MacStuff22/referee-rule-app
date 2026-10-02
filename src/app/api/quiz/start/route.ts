@@ -8,6 +8,7 @@ import {
   buildSuppressionAdjacency,
   createSituationExclusionTracker,
 } from '@/lib/situationMatches'
+import { CATEGORIES } from '@/lib/constants'
 import type { SessionLength } from '@/types'
 
 const SESSION_COUNTS: Record<SessionLength, number> = {
@@ -22,14 +23,23 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { sessionLength }: { sessionLength: SessionLength } = await request.json()
+  const { sessionLength, categories }: { sessionLength: SessionLength; categories?: string[] } = await request.json()
   const targetCount = SESSION_COUNTS[sessionLength]
 
+  // Optional focus (dashboard Practice buttons): only these topics. Unknown
+  // names are rejected rather than silently dropped.
+  const focus = Array.isArray(categories) && categories.length > 0 ? categories : null
+  if (focus && !focus.every((c) => (CATEGORIES as readonly string[]).includes(c))) {
+    return NextResponse.json({ error: 'Unknown category' }, { status: 400 })
+  }
+
   // Get all approved questions
-  const { data: questions } = await supabase
+  let questionQuery = supabase
     .from('questions')
     .select('id, category, situation_id')
     .eq('is_approved', true)
+  if (focus) questionQuery = questionQuery.in('category', focus)
+  const { data: questions } = await questionQuery
 
   if (!questions || questions.length === 0) {
     return NextResponse.json({ error: 'No questions available' }, { status: 400 })
