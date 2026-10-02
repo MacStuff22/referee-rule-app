@@ -5,6 +5,7 @@ import { ReadinessDial } from './readiness-dial'
 import { ProgressRing } from './progress-ring'
 import { TrendChart, TrendSparkline } from './trend-chart'
 import { ActivityCalendar } from './activity-calendar'
+import { Medal } from './medal'
 import { DeltaPill, LabeledBar, NotEnoughData, pct } from './primitives'
 
 const LABEL_STYLE: Record<string, string> = {
@@ -254,8 +255,10 @@ export function GlanceTiles({ data }: { data: DashboardData }) {
             <p className="text-sm text-gray-600">Your first badge is {milestones.next?.target ?? 100} questions away.</p>
           ) : (
             <div className="flex gap-2">
-              {milestones.earned.slice(0, 4).map((b) => (
-                <span key={b.id} title={b.title} className="flex size-9 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">★</span>
+              {milestones.earned.slice(0, 5).map((b) => (
+                <span key={b.id} title={b.title}>
+                  <Medal badge={b} size="sm" />
+                </span>
               ))}
             </div>
           )}
@@ -274,17 +277,15 @@ export function GlanceTiles({ data }: { data: DashboardData }) {
           />
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {milestones.earned.map((b) => (
-              <li key={b.id} className="space-y-1.5 rounded-xl border border-gray-200 p-3">
-                <span className="flex size-9 items-center justify-center rounded-full bg-slate-900 text-sm font-bold text-white">★</span>
+              <li key={b.id} className="flex flex-col items-center gap-2 rounded-xl border border-gray-200 p-4 text-center">
+                <Medal badge={b} />
                 <p className="font-semibold text-gray-900">{b.title}</p>
                 <p className="text-sm text-gray-500">{b.detail}</p>
               </li>
             ))}
             {milestones.next && (
-              <li className="space-y-1.5 rounded-xl border border-dashed border-gray-300 p-3">
-                <span className="flex size-9 items-center justify-center rounded-full bg-gray-100 text-xs font-bold text-gray-500">
-                  {milestones.next.current}
-                </span>
+              <li className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-gray-300 p-4 text-center">
+                <Medal badge={{ kind: 'questions', target: milestones.next.target }} locked />
                 <p className="font-semibold text-gray-900">{milestones.next.title}</p>
                 <p className="text-sm text-gray-500">{milestones.next.target - milestones.next.current} to go</p>
               </li>

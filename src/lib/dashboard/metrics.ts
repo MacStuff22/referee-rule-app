@@ -540,6 +540,10 @@ export function missedQuestions(answers: AnswerRecord[], questions: QuestionMeta
 
 export interface Badge {
   id: string
+  /** Drives the badge's icon and color. */
+  kind: 'questions' | 'best-week' | 'mastered'
+  /** For 'questions' badges, the question count that earned it. */
+  target?: number
   title: string
   detail: string
 }
@@ -559,6 +563,8 @@ export function milestones(answers: AnswerRecord[], masteries: MasteryInfo[]): M
     if (reached) {
       earned.push({
         id: `q${target}`,
+        kind: 'questions',
+        target,
         title: `First ${target} questions`,
         detail: `Earned ${shortDate(dayKey(new Date(reached.answeredAt)))}`,
       })
@@ -585,6 +591,7 @@ export function milestones(answers: AnswerRecord[], masteries: MasteryInfo[]): M
   if (best) {
     earned.push({
       id: 'best-week',
+      kind: 'best-week',
       title: `Best week: ${Math.round(best.accuracy * 100)}%`,
       detail: `Week of ${shortDate(best.key)}`,
     })
@@ -594,7 +601,7 @@ export function milestones(answers: AnswerRecord[], masteries: MasteryInfo[]): M
     .filter((m) => classifyMastery(m.totalAnswered, m.emaScore) === 'mastered')
     .map((m) => m.category)
   for (const category of mastered.slice(0, 3)) {
-    earned.push({ id: `mastered-${category}`, title: `${category} mastered`, detail: 'Currently mastered' })
+    earned.push({ id: `mastered-${category}`, kind: 'mastered', title: `${category} mastered`, detail: 'Currently mastered' })
   }
 
   return {

@@ -3,21 +3,22 @@ import { cn } from '@/lib/utils'
 import type { StrengthSection, TileStatus } from '@/lib/dashboard/metrics'
 import { SectionHeading } from './primitives'
 
+// Red -> yellow -> green: worst to best. "Not started" stays neutral gray.
 const TILE: Record<TileStatus, { className: string; label: string }> = {
-  mastered: { className: 'bg-blue-800 text-white', label: 'Mastered' },
-  proficient: { className: 'bg-blue-300 text-blue-950', label: 'Solid' },
-  learning: { className: 'bg-blue-100 text-slate-900', label: 'Just learning' },
-  developing: { className: 'bg-orange-300 text-orange-950', label: 'Needs work' },
+  mastered: { className: 'bg-green-600 text-white', label: 'Mastered' },
+  proficient: { className: 'bg-lime-300 text-lime-950', label: 'Solid' },
+  learning: { className: 'bg-yellow-200 text-yellow-950', label: 'Just learning' },
+  developing: { className: 'bg-red-500 text-white', label: 'Needs work' },
   new: { className: 'border border-dashed border-gray-400 bg-white text-gray-500', label: 'Not started' },
 }
 
-const LEGEND: TileStatus[] = ['mastered', 'proficient', 'learning', 'developing', 'new']
+const LEGEND: TileStatus[] = ['developing', 'learning', 'proficient', 'mastered', 'new']
 
 export function StrengthMap({ sections }: { sections: StrengthSection[] }) {
   return (
     <section className="space-y-3">
       <SectionHeading number={5} title="Strengths & Weaknesses Map">
-        The whole rulebook at a glance. Orange tiles are where the gaps are.
+        The whole rulebook at a glance. Red tiles are where the gaps are; green tiles are your strengths.
       </SectionHeading>
       <Card>
         <CardContent className="space-y-4">
