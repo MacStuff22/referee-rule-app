@@ -31,6 +31,8 @@ type AnswerState = 'unanswered' | 'correct' | 'incorrect'
 
 export interface QuizAnsweredResult {
   isCorrect: boolean
+  /** The question had already been answered (e.g. from another tab) — isCorrect is the verdict that was recorded the first time. */
+  alreadyAnswered?: boolean
 }
 
 export interface QuizRunnerProps {
@@ -116,6 +118,7 @@ function shuffleIndices(count: number): number[] {
 }
 
 const SELECT_ALL_HINT = 'Select all that apply'
+const SUBMIT_ERROR = "Couldn't save your answer — check your connection and try again."
 
 function MultiSelectHint() {
   return (
@@ -149,6 +152,11 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
   const nextLockRef = useRef(false)
   const [advancing, setAdvancing] = useState(false)
   const [nextError, setNextError] = useState<string | null>(null)
+
+  // A save that fails is shown as a retryable error, never as a wrong answer.
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [alreadyAnswered, setAlreadyAnswered] = useState(false)
+  const compoundPayloadRef = useRef<unknown>(null)
 
   async function handleNextClick() {
     if (nextLockRef.current) return
@@ -276,9 +284,16 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
     if (submitLockRef.current) return
     submitLockRef.current = true
     setSubmitting(true)
+    setSubmitError(null)
     try {
       const result = await onAnswered(selected)
       setAnswerState(result.isCorrect ? 'correct' : 'incorrect')
+      if (result.alreadyAnswered) setAlreadyAnswered(true)
+    } catch {
+      // Not saved, so there is no verdict to show — release the lock so the
+      // user can try again.
+      submitLockRef.current = false
+      setSubmitError(SUBMIT_ERROR)
     } finally {
       setSubmitting(false)
     }
@@ -312,7 +327,19 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
     setCompoundSubCorrect(newSubCorrect)
     const isLastSubQ = compoundSubIndex === question.sub_questions.length - 1
     if (isLastSubQ) {
-      onAnswered(encodeCompoundAnswer(newSubAnswers))
+      saveCompoundAnswer(encodeCompoundAnswer(newSubAnswers))
+    }
+  }
+
+  // The per-part verdicts are local, so only the save itself can fail here;
+  // keep the payload so the user can retry instead of losing the answer.
+  async function saveCompoundAnswer(payload: unknown) {
+    compoundPayloadRef.current = payload
+    setSubmitError(null)
+    try {
+      await onAnswered(payload)
+    } catch {
+      setSubmitError(SUBMIT_ERROR)
     }
   }
 
@@ -336,7 +363,13 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
   // ─── Scoreboard question submit (invoked by ScoreboardSimulator) ─────────────
 
   async function saveScoreboardAnswer(entries: ScoreboardAnswerEntry[]): Promise<QuizAnsweredResult> {
-    return onAnswered(entries)
+    setSubmitError(null)
+    try {
+      return await onAnswered(entries)
+    } catch (err) {
+      setSubmitError(SUBMIT_ERROR)
+      throw err
+    }
   }
 
   // ─── Shared progress bar ─────────────────────────────────────────────────────
@@ -499,6 +532,14 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
           <Button onClick={advanceSubQuestion} className="w-full" size="lg">Next Part →</Button>
         ) : (
           <div className="space-y-1">
+            {submitError && (
+              <p className="text-sm text-red-600">
+                {submitError}{' '}
+                <button type="button" className="underline" onClick={() => saveCompoundAnswer(compoundPayloadRef.current)}>
+                  Retry saving
+                </button>
+              </p>
+            )}
             <Button onClick={handleNextClick} disabled={advancing} className="w-full" size="lg">
               {advancing ? (
                 <>
@@ -565,6 +606,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
           nextLabel={nextLabel}
           nextPending={advancing}
         />
+        {submitError && <p className="text-sm text-red-600">{submitError}</p>}
         {nextError && <p className="text-sm text-red-600">{nextError}</p>}
         {exitDialog}
       </div>
@@ -629,6 +671,11 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
                 <span className="font-medium">📍 Situation {question.situation_id}</span>
               </p>
             )}
+            {alreadyAnswered && (
+              <p className="text-xs text-gray-500">
+                You&apos;d already answered this question earlier (possibly in another tab) — your first answer is the one that counted.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}
@@ -636,6 +683,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
       {answerState === 'unanswered' ? (
         <div className="space-y-1">
           {renderSelectedCount(question.answer_type)}
+          {submitError && <p className="text-sm text-red-600">{submitError}</p>}
           <Button onClick={submitAnswer} disabled={selected.length === 0 || submitting} className="w-full" size="lg">
             {submitting ? (
               <>

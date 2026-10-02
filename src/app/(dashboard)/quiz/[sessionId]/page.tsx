@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { QuizRunner, type QuizAnsweredResult } from '@/components/quiz/quiz-runner'
+import { interpretAnswerResponse } from '@/lib/quiz/answerResponse'
 import type { Question, QuizSession } from '@/types'
 
 export default function QuizSessionPage() {
@@ -45,18 +46,27 @@ export default function QuizSessionPage() {
   }
 
   async function handleAnswered(selectedAnswers: unknown): Promise<QuizAnsweredResult> {
-    if (!question || !session) return { isCorrect: false }
+    if (!question || !session) throw new Error('Quiz is not ready')
     const res = await fetch('/api/quiz/answer', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sessionId: session.id, questionId: question.id, selectedAnswers }),
     })
-    const data = await res.json()
-    if (!res.ok) {
-      console.error('Failed to submit answer:', data.error)
-      return { isCorrect: false }
+    const outcome = interpretAnswerResponse(res.status, await res.json().catch(() => null))
+
+    if (outcome.kind === 'verdict') {
+      return { isCorrect: outcome.isCorrect, alreadyAnswered: outcome.alreadyAnswered }
     }
-    return { isCorrect: data.isCorrect }
+
+    // A failed save is never reported to the user as a wrong answer — it
+    // throws so QuizRunner shows a retryable error (or, if the session
+    // moved on elsewhere, we reload the real current question instead).
+    if (outcome.kind === 'resync') {
+      await loadCurrentQuestion()
+      throw new Error('Quiz moved on')
+    }
+    console.error('Failed to submit answer:', outcome.message)
+    throw new Error(outcome.message)
   }
 
   async function handleExit() {

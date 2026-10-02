@@ -246,6 +246,10 @@ export function ScoreboardSimulator({
       try {
         const result = await onSubmit(entries)
         isCorrect = result.isCorrect
+      } catch {
+        // Not saved (the parent shows the error) — stay unsubmitted so the
+        // referee can resubmit rather than being shown a verdict.
+        return
       } finally {
         setSubmitting(false)
       }

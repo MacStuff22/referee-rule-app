@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextResponse, after } from 'next/server'
 import { scoreAnswer } from '@/lib/quiz/scoring'
+import { ANSWER_ERROR_CODES } from '@/lib/quiz/answerResponse'
 import { classifyMastery, updateEma, nextRefreshInterval, MASTERY_CONFIG } from '@/lib/quiz/mastery'
 
 export async function POST(request: Request) {
@@ -31,10 +32,16 @@ export async function POST(request: Request) {
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
   if (session.completed_at) {
-    return NextResponse.json({ error: 'Session already completed' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Session already completed', code: ANSWER_ERROR_CODES.sessionCompleted },
+      { status: 400 }
+    )
   }
   if (session.question_ids[session.current_index] !== questionId) {
-    return NextResponse.json({ error: 'Question is not the session\'s current question' }, { status: 400 })
+    return NextResponse.json(
+      { error: 'Question is not the session\'s current question', code: ANSWER_ERROR_CODES.notCurrentQuestion },
+      { status: 400 }
+    )
   }
 
   if (!question) return NextResponse.json({ error: 'Question not found' }, { status: 404 })
@@ -57,8 +64,20 @@ export async function POST(request: Request) {
 
   if (error) {
     // Unique violation → this question was already answered for this session.
+    // Hand back the verdict that was recorded the first time so a duplicate
+    // submission (second tab, retried request) shows what actually counted
+    // instead of being mistaken for a wrong answer by the client.
     if (error.code === '23505') {
-      return NextResponse.json({ error: 'Question already answered' }, { status: 409 })
+      const { data: existing } = await supabase
+        .from('quiz_answers')
+        .select('is_correct')
+        .eq('session_id', sessionId)
+        .eq('question_id', questionId)
+        .maybeSingle()
+      return NextResponse.json(
+        { error: 'Question already answered', alreadyAnswered: true, isCorrect: existing?.is_correct ?? null },
+        { status: 409 }
+      )
     }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
