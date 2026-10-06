@@ -42,6 +42,8 @@ export interface ScoreboardSimulatorProps {
   rationale?: string
   ruleNumber?: string
   situationId?: string
+  /** Situation text; revealed only once the simulation ends (so it can't give away the clock). */
+  situationText?: string
   /** Show the correct time next to a missed answer after submitting (live quiz). */
   revealAnswer?: boolean
   /** Offer Replay / Reset (admin preview). */
@@ -69,6 +71,7 @@ export function ScoreboardSimulator({
   rationale,
   ruleNumber,
   situationId,
+  situationText,
   revealAnswer = false,
   allowReplay = false,
   onSubmit,
@@ -429,6 +432,12 @@ export function ScoreboardSimulator({
       {/* Answer section */}
       {phase === 'question' && (
         <div className="space-y-3">
+          {situationText && (
+            <div className="rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3">
+              <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Situation</p>
+              <p className="text-sm text-blue-900 leading-relaxed whitespace-pre-line">{situationText}</p>
+            </div>
+          )}
           <Card>
             <CardContent className="pt-4 pb-4 space-y-3">
               <p className="text-sm font-medium text-gray-700">{promptText}</p>

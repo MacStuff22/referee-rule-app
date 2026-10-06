@@ -584,14 +584,10 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
       <div className="max-w-2xl mx-auto space-y-4">
         {progressBar}
 
-        {/* Situation */}
-        <div className="rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3">
-          <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Situation</p>
-          <p className="text-sm text-blue-900 leading-relaxed whitespace-pre-line">{question.text}</p>
-        </div>
-
+        {/* Situation text is shown by the simulator once the simulation ends */}
         <ScoreboardSimulator
           key={question.id}
+          situationText={question.text}
           period={config.period}
           startGT={config.start_gt}
           events={config.events}
