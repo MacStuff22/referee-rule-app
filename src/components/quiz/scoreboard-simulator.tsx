@@ -31,6 +31,8 @@ interface CombinedPenalties {
   teamB: { player: string; label: string }[]
 }
 
+type LogEntry = { gt: number; kind: 'penalty' | 'goal' | 'other'; team?: 'A' | 'B'; text: string }
+
 type Overlay = { title: string; sub: string | null; isGoal: boolean; combined?: CombinedPenalties }
 
 export interface ScoreboardSimulatorProps {
@@ -88,7 +90,7 @@ export function ScoreboardSimulator({
   const [scoreA, setScoreA] = useState(0)
   const [scoreB, setScoreB] = useState(0)
   const [overlay, setOverlay] = useState<Overlay | null>(null)
-  const [log, setLog] = useState<{ gt: number; text: string; isGoal: boolean }[]>([])
+  const [log, setLog] = useState<LogEntry[]>([])
   const [inputs, setInputs] = useState<string[]>(active.map(() => ''))
   const [woState, setWoState] = useState<boolean[]>(active.map(() => false))
   const [submitted, setSubmitted] = useState(false)
@@ -100,6 +102,13 @@ export function ScoreboardSimulator({
   const gtRef = useRef(startGT)
   const evtIdxRef = useRef(0)
   const groupSizeRef = useRef(1)
+
+  const logRows: { key: string; gt: number; team: LogEntry[]; other: LogEntry[] }[] = []
+  for (const e of log) {
+    let row = logRows.find((r) => r.gt === e.gt)
+    if (!row) { row = { key: `${e.gt}-${logRows.length}`, gt: e.gt, team: [], other: [] }; logRows.push(row) }
+    ;(e.kind === 'other' ? row.other : row.team).push(e)
+  }
 
   function clearTimer() {
     if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null }
@@ -118,13 +127,14 @@ export function ScoreboardSimulator({
 
     setLog((prev) => [
       ...prev,
-      ...group.map((e) => ({
+      ...group.map((e): LogEntry => ({
         gt: e.gt,
+        kind: e.type,
+        team: e.type === 'other' ? undefined : e.team,
         text:
-          e.type === 'goal' ? `GOAL — Team ${e.team}`
+          e.type === 'goal' ? 'GOAL'
           : e.type === 'other' ? (e.descriptor ? `${e.title} — ${e.descriptor}` : e.title)
-          : `Team ${e.team} #${e.player} — ${penaltyLabel(e)}`,
-        isGoal: e.type === 'goal',
+          : `#${e.player} ${penaltyLabel(e)}`,
       })),
     ])
 
@@ -413,11 +423,35 @@ export function ScoreboardSimulator({
         {log.length === 0 ? (
           <div className="text-[11px] text-gray-300">No events yet</div>
         ) : (
-          <div className="space-y-1">
-            {log.map((entry, i) => (
-              <div key={i} className="flex gap-2 items-baseline text-[12px]">
-                <span className="tabular-nums text-[11px] text-gray-400 shrink-0 min-w-[28px]">{formatGT(entry.gt)}</span>
-                <span className={entry.isGoal ? 'text-green-700 font-medium' : 'text-gray-700'}>{entry.text}</span>
+          <div className="rounded-lg border border-slate-200 overflow-hidden text-[12px]">
+            <div className="grid grid-cols-[1fr_52px_1fr] bg-slate-800 text-[10px] font-bold uppercase tracking-widest text-center">
+              <div className="px-2 py-1.5 text-blue-300">Team A</div>
+              <div className="px-2 py-1.5 text-slate-300">Time</div>
+              <div className="px-2 py-1.5 text-red-300">Team B</div>
+            </div>
+            {logRows.map((row) => (
+              <div key={row.key}>
+                {row.team.length > 0 && (
+                  <div className="grid grid-cols-[1fr_52px_1fr] border-t border-slate-100">
+                    {(['A', 'B'] as const).map((t, ci) => (
+                      <div key={t} className={`px-2.5 py-1.5 space-y-0.5 ${ci === 1 ? 'order-3' : ''}`}>
+                        {row.team.filter((e) => e.team === t).map((e, i) =>
+                          e.kind === 'goal' ? (
+                            <span key={i} className="inline-block rounded-md bg-green-100 px-2 py-0.5 text-[11px] font-semibold text-green-800">GOAL</span>
+                          ) : (
+                            <div key={i} className="text-gray-700">{e.text}</div>
+                          )
+                        )}
+                      </div>
+                    ))}
+                    <div className="order-2 bg-slate-50 px-1 py-1.5 text-center tabular-nums text-[11px] text-gray-400">{formatGT(row.gt)}</div>
+                  </div>
+                )}
+                {row.other.map((e, i) => (
+                  <div key={i} className="border-t border-slate-100 bg-slate-50 px-2.5 py-1.5 text-center text-gray-600">
+                    <span className="tabular-nums text-[11px] text-gray-400 mr-2">{formatGT(row.gt)}</span>{e.text}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
