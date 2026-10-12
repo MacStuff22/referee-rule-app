@@ -47,6 +47,8 @@ export interface Question {
   question_type: QuestionType
   sub_questions: SubQuestion[] // populated only when question_type === 'compound'
   penalty_table: PenaltyTable
+  video_path?: string          // private-bucket object path; '' / absent = no video clip
+  video_plays?: number         // how many times the clip auto-plays before the question appears (1-5)
   is_approved: boolean
   created_by: string
   created_at: string

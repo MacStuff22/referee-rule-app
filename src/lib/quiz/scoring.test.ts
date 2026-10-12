@@ -139,3 +139,25 @@ describe('scoreAnswer dispatch', () => {
     expect(scoreAnswer(q, encodeScoreboardAnswer([{ washOut: false, secs: 5 }]))).toBe(true)
   })
 })
+
+describe('video questions', () => {
+  it('score exactly like the same question without a clip', () => {
+    const plain = baseQuestion({ correct_answers: [2] })
+    const withVideo = baseQuestion({ correct_answers: [2], video_path: 'questions/a.mp4', video_plays: 3 })
+    for (const answer of [[2], [1], []]) {
+      expect(scoreAnswer(withVideo, answer)).toBe(scoreAnswer(plain, answer))
+    }
+  })
+  it('scores a compound video question the same way', () => {
+    const compound = baseQuestion({
+      question_type: 'compound',
+      video_path: 'questions/a.mp4',
+      sub_questions: [
+        { text: 'p1', answer_type: 'multiple_choice', options: [], correct_answers: [0], rationale: '' },
+        { text: 'p2', answer_type: 'multi_select', options: [], correct_answers: [1, 2], rationale: '' },
+      ],
+    })
+    expect(scoreAnswer(compound, encodeCompoundAnswer([[0], [2, 1]]))).toBe(true)
+    expect(scoreAnswer(compound, encodeCompoundAnswer([[0], [1]]))).toBe(false)
+  })
+})

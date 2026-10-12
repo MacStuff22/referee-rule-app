@@ -47,6 +47,11 @@ export const QUESTION_FEATURES: QuestionFeatureDef[] = [
     label: 'Penalty Table',
     matches: hasPenaltyTable,
   },
+  {
+    id: 'has-video',
+    label: 'Has video',
+    matches: (q) => !!q.video_path,
+  },
 ]
 
 /** True if `q` matches any of the selected feature ids — the shared predicate behind the Question Features filter, wherever it's offered. */

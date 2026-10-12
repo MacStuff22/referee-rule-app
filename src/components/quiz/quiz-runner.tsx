@@ -22,6 +22,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { ScoreboardSimulator } from '@/components/quiz/scoreboard-simulator'
+import { VideoStage } from '@/components/quiz/video-stage'
 import { encodeCompoundAnswer, type ScoreboardAnswerEntry } from '@/lib/quiz/answers'
 import { parseScoreboardConfig } from '@/types/scoreboard'
 import { splitOnPenaltyTableMarker, stripPenaltyTableMarker } from '@/lib/penaltyTable'
@@ -136,6 +137,15 @@ function needsSingleAnswerConfirm(answerType: string, selectedCount: number, cor
 export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, onExit, showMeta = false }: QuizRunnerProps) {
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  // Video questions: the clip plays first and the question stays hidden until
+  // its last play finishes (the stage then rests on the final frame).
+  const hasVideo = !!question.video_path && question.question_type !== 'scoreboard'
+  const [videoDone, setVideoDone] = useState(!hasVideo)
+  const showQuestion = !hasVideo || videoDone
+  const videoStage = hasVideo ? (
+    <VideoStage questionId={question.id} plays={question.video_plays} onDone={() => setVideoDone(true)} />
+  ) : null
 
   // Confirmation gate for submitting a multi-select question with only one option checked.
   // Dialog is open whenever there's a submit waiting on confirmation.
@@ -459,6 +469,9 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
       <div className="max-w-2xl mx-auto space-y-4">
         {progressBar}
 
+        {videoStage}
+
+        {showQuestion && (<>
         <div className="rounded-xl border-2 border-blue-200 bg-blue-50 px-4 py-3 space-y-3">
           <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Situation</p>
           {compoundSplit ? (
@@ -553,6 +566,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
             {nextError && <p className="text-sm text-red-600">{nextError}</p>}
           </div>
         )}
+        </>)}
         {exitDialog}
         {confirmSingleDialog}
       </div>
@@ -621,6 +635,9 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
     <div className="max-w-2xl mx-auto space-y-4">
       {progressBar}
 
+      {videoStage}
+
+      {showQuestion && (<>
       {/* Penalty table — legacy placement (no marker in text) */}
       {!split && hasTable && <PenaltyTableBlock penA={penA} penB={penB} />}
 
@@ -706,6 +723,7 @@ export function QuizRunner({ question, progress, onAnswered, onNext, nextLabel, 
           {nextError && <p className="text-sm text-red-600">{nextError}</p>}
         </div>
       )}
+      </>)}
       {exitDialog}
       {confirmSingleDialog}
     </div>

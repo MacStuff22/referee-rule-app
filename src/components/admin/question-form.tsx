@@ -16,6 +16,10 @@ import { HANDBOOK_SECTIONS, CATEGORIES } from '@/lib/constants'
 import { PENALTY_DISPLAY, parseGameTime, formatGT, gtSecondsValid, maskGameTime } from '@/lib/scoreboard'
 import { PENALTY_TABLE_MARKER, hasPenaltyTableMarker } from '@/lib/penaltyTable'
 import { getMatchesForSituation, getQuestionsBySituationIds, otherSituationId } from '@/lib/situationMatches'
+import {
+  VIDEO_BUCKET, DEFAULT_VIDEO_PLAYS, MIN_VIDEO_PLAYS, MAX_VIDEO_PLAYS,
+  buildVideoPath, clampPlays, formatBytes, videoFileProblem, videoFileWarnings,
+} from '@/lib/video'
 import type { SinglePenalty } from '@/types/scoreboard'
 import type { League, Question, SubQuestion } from '@/types'
 
@@ -135,9 +139,11 @@ function toSubDraft(sq: SubQuestion): SubQuestionDraft {
 
 interface Props {
   question?: Question
+  /** Admin-only source notes (game / date / source), loaded server-side from question_admin_notes. */
+  initialVideoNotes?: string
 }
 
-export default function QuestionForm({ question }: Props) {
+export default function QuestionForm({ question, initialVideoNotes = '' }: Props) {
   const router = useRouter()
   const [supabase] = useState(() => createClient())
 
@@ -266,6 +272,62 @@ export default function QuestionForm({ question }: Props) {
       : []
   )
 
+  // Video clip (optional attachment for multiple-choice / multi-select / compound)
+  const [videoOn, setVideoOn] = useState(!!question?.video_path)
+  const [videoPath, setVideoPath] = useState(question?.video_path ?? '')
+  const [videoFile, setVideoFile] = useState<File | null>(null)
+  const [videoPreviewUrl, setVideoPreviewUrl] = useState<string | null>(null)
+  const [videoDuration, setVideoDuration] = useState<number | null>(null)
+  const [videoFileError, setVideoFileError] = useState('')
+  const [videoPlays, setVideoPlays] = useState(clampPlays(question?.video_plays ?? DEFAULT_VIDEO_PLAYS))
+  const [videoNotes, setVideoNotes] = useState(initialVideoNotes)
+  const [savedClipUrl, setSavedClipUrl] = useState<string | null>(null)
+  const videoInputRef = useRef<HTMLInputElement>(null)
+  // The path currently stored in the database for this question — what to
+  // delete from storage if the clip is replaced/removed, or the question deleted.
+  const savedVideoPathRef = useRef(question?.video_path ?? '')
+  const videoPreviewUrlRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    videoPreviewUrlRef.current = videoPreviewUrl
+  }, [videoPreviewUrl])
+  useEffect(() => () => {
+    if (videoPreviewUrlRef.current) URL.revokeObjectURL(videoPreviewUrlRef.current)
+  }, [])
+
+  // Signed URL so an existing clip can be previewed in the editor (admins may preview unapproved questions too).
+  useEffect(() => {
+    if (!question?.id || !question.video_path) return
+    let cancelled = false
+    fetch(`/api/video/${question.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => { if (!cancelled && body?.url) setSavedClipUrl(body.url) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [question?.id, question?.video_path])
+
+  function clearVideoFile() {
+    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl)
+    setVideoFile(null)
+    setVideoPreviewUrl(null)
+    setVideoDuration(null)
+  }
+
+  function handleVideoPicked(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    const problem = videoFileProblem(file)
+    if (problem) { setVideoFileError(problem); return }
+    setVideoFileError('')
+    clearVideoFile()
+    setVideoFile(file)
+    setVideoPreviewUrl(URL.createObjectURL(file))
+  }
+
+  const videoActive = videoOn && mode !== 'scoreboard'
+  const videoWarnings = videoFile ? videoFileWarnings(videoFile.size, videoDuration) : []
+
   // Keep Correct Answers fully in sync with penalty events — team/player come from the event
   useEffect(() => {
     if (mode !== 'scoreboard') return
@@ -293,6 +355,8 @@ export default function QuestionForm({ question }: Props) {
       mode, text, ruleRefs, handbookSection, situationId, league, category, isApproved,
       options, correctAnswers, rationale, penaltyA, penaltyB, subQuestions,
       sbSituationType, sbPeriod, sbStartGT, sbEvents, sbPlayerAnswers,
+      videoOn, videoPath, videoPlays, videoNotes,
+      videoFile: videoFile ? [videoFile.name, videoFile.size, videoFile.lastModified] : null,
     })
   }
   const [initialSnapshot] = useState(() => formSnapshot())
@@ -509,7 +573,7 @@ export default function QuestionForm({ question }: Props) {
    * payload against the original `question` prop, the only true "before"
    * snapshot available.
    */
-  async function maybeShowMatchPrompt(payload: Record<string, unknown>, navigate: () => void) {
+  async function maybeShowMatchPrompt(payload: Record<string, unknown>, navigate: () => void, hasVideo = false) {
     if (!question?.id) { navigate(); return }
 
     const substantiveChanged = SUBSTANTIVE_FIELDS.some(
@@ -547,9 +611,12 @@ export default function QuestionForm({ question }: Props) {
     // otherwise silently copy a multi-answer correct_answers array onto a
     // single-select row.
     const exactQuestions = groups.filter((g) => g.matchType === 'exact_match').flatMap((g) => g.questions)
+    // Never offered when either side has a video: a copied question would be missing
+    // (or wrongly lack) the clip its wording depends on.
     const canAutoUpdate =
+      !hasVideo &&
       exactQuestions.length > 0 &&
-      exactQuestions.every((q) => q.question_type === payload.question_type && q.answer_type === payload.answer_type)
+      exactQuestions.every((q) => !q.video_path && q.question_type === payload.question_type && q.answer_type === payload.answer_type)
 
     setMatchPrompt({ sourceQuestionId: question.id, payload, groups, canAutoUpdate, navigate })
   }
@@ -588,13 +655,14 @@ export default function QuestionForm({ question }: Props) {
 
   // ── Save logic ────────────────────────────────────────────────────────────
 
-  async function doSave(): Promise<{ success: boolean; payload?: Record<string, unknown> }> {
+  async function doSave(): Promise<{ success: boolean; payload?: Record<string, unknown>; hasVideo?: boolean }> {
     setError('')
 
     if (!text.trim()) { setError('Situation / question text is required.'); return { success: false } }
     if (!category) { setError('Category is required.'); return { success: false } }
     if (!handbookSection) { setError('Handbook section is required.'); return { success: false } }
     if (league.length === 0) { setError('Select at least one league.'); return { success: false } }
+    if (videoActive && !videoFile && !videoPath) { setError('Choose a video clip, or turn the video off.'); return { success: false } }
 
     const filledRefs = ruleRefs.filter((r) => r.trim())
 
@@ -717,38 +785,102 @@ export default function QuestionForm({ question }: Props) {
     }
 
     setSaving(true)
+
+    // Upload a newly chosen clip first (a fresh object each time, so a failed
+    // save can never damage the clip a question currently uses).
+    let uploadedPath: string | null = null
+    if (videoActive && videoFile) {
+      const path = buildVideoPath(crypto.randomUUID())
+      const { error: uploadError } = await supabase.storage
+        .from(VIDEO_BUCKET)
+        .upload(path, videoFile, { contentType: 'video/mp4', upsert: false })
+      if (uploadError) {
+        setSaving(false)
+        setError(`Couldn't upload the clip: ${uploadError.message}`)
+        return { success: false }
+      }
+      uploadedPath = path
+    }
+    const finalVideoPath = videoActive ? (uploadedPath ?? videoPath) : ''
+    const dbPayload = {
+      ...payload,
+      video_path: finalVideoPath,
+      video_plays: videoActive ? clampPlays(videoPlays) : DEFAULT_VIDEO_PLAYS,
+    }
+
     let err
+    let savedId = question?.id
     if (question?.id) {
-      const { error } = await supabase.from('questions').update(payload).eq('id', question.id)
+      const { error } = await supabase.from('questions').update(dbPayload).eq('id', question.id)
       err = error
     } else {
       const { data: { user } } = await supabase.auth.getUser()
-      const { error } = await supabase.from('questions').insert({ ...payload, created_by: user?.id })
+      const { data, error } = await supabase
+        .from('questions')
+        .insert({ ...dbPayload, created_by: user?.id })
+        .select('id')
+        .single()
       err = error
+      savedId = data?.id
     }
-    setSaving(false)
 
-    if (err) { setError(err.message); return { success: false } }
-    return { success: true, payload }
+    if (err) {
+      if (uploadedPath) await supabase.storage.from(VIDEO_BUCKET).remove([uploadedPath])
+      setSaving(false)
+      setError(err.message)
+      return { success: false }
+    }
+
+    // The question row now points at finalVideoPath — drop the clip it used before.
+    const previousPath = savedVideoPathRef.current
+    if (previousPath && previousPath !== finalVideoPath) {
+      await supabase.storage.from(VIDEO_BUCKET).remove([previousPath])
+    }
+    savedVideoPathRef.current = finalVideoPath
+    if (finalVideoPath) setVideoPath(finalVideoPath)
+    if (uploadedPath) clearVideoFile()
+
+    // Admin-only source notes live in their own table so quiz takers can never receive them.
+    if (savedId) {
+      const notes = videoNotes.trim()
+      let notesError: { message: string } | null = null
+      if (videoActive && notes) {
+        const { error } = await supabase
+          .from('question_admin_notes')
+          .upsert({ question_id: savedId, notes, updated_at: new Date().toISOString() })
+        notesError = error
+      } else if (initialVideoNotes) {
+        const { error } = await supabase.from('question_admin_notes').delete().eq('question_id', savedId)
+        notesError = error
+      }
+      if (notesError) window.alert(`The question was saved, but its source notes could not be saved: ${notesError.message}`)
+    }
+
+    setSaving(false)
+    return { success: true, payload, hasVideo: !!finalVideoPath }
   }
 
   async function handleSave() {
     const result = await doSave()
     if (!result.success) return
-    await maybeShowMatchPrompt(result.payload!, () => { router.push(backUrl); router.refresh() })
+    await maybeShowMatchPrompt(result.payload!, () => { router.push(backUrl); router.refresh() }, result.hasVideo)
   }
 
   async function handleSaveAndNext() {
     if (!nextId) return
     const result = await doSave()
     if (!result.success) return
-    await maybeShowMatchPrompt(result.payload!, () => { router.push(`/admin/questions/${nextId}`); router.refresh() })
+    await maybeShowMatchPrompt(result.payload!, () => { router.push(`/admin/questions/${nextId}`); router.refresh() }, result.hasVideo)
   }
 
   async function deleteQuestion() {
     if (!question?.id) return
     if (!confirm('Delete this question? This cannot be undone.')) return
-    await supabase.from('questions').delete().eq('id', question.id)
+    const { error: deleteError } = await supabase.from('questions').delete().eq('id', question.id)
+    if (deleteError) { setError(deleteError.message); return }
+    if (savedVideoPathRef.current) {
+      await supabase.storage.from(VIDEO_BUCKET).remove([savedVideoPathRef.current])
+    }
     router.push('/admin/questions')
     router.refresh()
   }
@@ -759,16 +891,104 @@ export default function QuestionForm({ question }: Props) {
     <div className="max-w-2xl space-y-6">
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
 
+      {/* Video clip (optional attachment) */}
+      <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={videoActive}
+            disabled={mode === 'scoreboard'}
+            onChange={(e) => setVideoOn(e.target.checked)}
+          />
+          Video question — show a game clip before the question
+        </label>
+        {mode === 'scoreboard' && (
+          <p className="text-xs text-gray-500">Video isn&apos;t available for scoreboard questions.</p>
+        )}
+
+        {videoActive && (
+          <div className="space-y-3">
+            <input
+              ref={videoInputRef}
+              type="file"
+              accept="video/mp4,.mp4"
+              className="hidden"
+              onChange={handleVideoPicked}
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <Button type="button" variant="outline" onClick={() => videoInputRef.current?.click()}>
+                {videoFile || videoPath ? 'Replace clip' : 'Choose MP4 clip'}
+              </Button>
+              {videoFile ? (
+                <span className="text-sm text-gray-600">{videoFile.name} · {formatBytes(videoFile.size)} (uploads when you save)</span>
+              ) : videoPath ? (
+                <span className="text-sm text-gray-600">Current clip saved</span>
+              ) : (
+                <span className="text-sm text-gray-500">No clip chosen yet</span>
+              )}
+            </div>
+
+            {videoFileError && <p className="text-sm text-red-600">{videoFileError}</p>}
+            {videoWarnings.map((w) => (
+              <p key={w} className="text-sm text-amber-700">⚠️ {w}</p>
+            ))}
+
+            {(videoPreviewUrl || (!videoFile && savedClipUrl)) && (
+              <video
+                key={videoPreviewUrl ?? savedClipUrl ?? 'clip'}
+                src={videoPreviewUrl ?? savedClipUrl ?? undefined}
+                controls
+                preload="metadata"
+                playsInline
+                onLoadedMetadata={(e) => { if (videoFile) setVideoDuration(e.currentTarget.duration) }}
+                className="w-full max-w-md rounded-lg bg-black"
+              />
+            )}
+
+            <div className="space-y-1">
+              <Label htmlFor="video-plays">Times the clip plays</Label>
+              <Input
+                id="video-plays"
+                type="number"
+                min={MIN_VIDEO_PLAYS}
+                max={MAX_VIDEO_PLAYS}
+                value={videoPlays}
+                onChange={(e) => setVideoPlays(clampPlays(e.target.value))}
+                className="w-24"
+              />
+              <p className="text-xs text-gray-500">
+                The clip plays this many times in a row (no pausing), then the question appears. Default {DEFAULT_VIDEO_PLAYS}.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <Label>Source notes (admin only)</Label>
+              <AutoResizeTextarea
+                value={videoNotes}
+                onChange={setVideoNotes}
+                placeholder="Game, date, period, where the clip came from… (never shown to users)"
+                minHeight={56}
+              />
+            </div>
+
+            <p className="text-xs text-gray-500">
+              Tip: MP4 (H.264), 720p, 30 fps keeps a 30-second clip around 3–6 MB. HandBrake&apos;s &quot;Fast 720p30&quot; preset with &quot;Web Optimized&quot; ticked works well.
+              The clip is private — only logged-in users can watch it.
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Question type selector */}
       <div className="space-y-2">
-        <Label>Question Type</Label>
+        <Label>{videoActive ? 'Answer Format' : 'Question Type'}</Label>
         <div className="flex gap-3 flex-wrap">
           {([
             ['multiple_choice', 'Multiple Choice'],
             ['multi_select', 'Multi-Select'],
             ['compound', 'Compound (multi-part)'],
             ['scoreboard', 'Scoreboard (Penalty Clock)'],
-          ] as const).map(([m, label]) => (
+          ] as const).filter(([m]) => !(videoActive && m === 'scoreboard')).map(([m, label]) => (
             <button
               key={m}
               onClick={() => {
