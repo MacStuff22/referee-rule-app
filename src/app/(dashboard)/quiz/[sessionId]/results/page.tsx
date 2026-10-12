@@ -8,6 +8,7 @@ import { LinkButton } from '@/components/ui/link-button'
 import { decodeCompoundAnswer, decodeScoreboardAnswer } from '@/lib/quiz/answers'
 import { parseScoreboardConfig } from '@/types/scoreboard'
 import { formatGT } from '@/lib/scoreboard'
+import { orderByQuizPosition } from '@/lib/quiz/review'
 
 interface Props {
   params: Promise<{ sessionId: string }>
@@ -28,10 +29,13 @@ export default async function ResultsPage({ params }: Props) {
 
   if (!session) redirect('/quiz')
 
-  const { data: answers } = await supabase
+  const { data: answerRows } = await supabase
     .from('quiz_answers')
     .select('*, questions(text, rule_number, category, rationale, options, correct_answers, question_type, sub_questions)')
     .eq('session_id', sessionId)
+
+  // Rows arrive in no guaranteed order — review in the order the quiz ran.
+  const answers = orderByQuizPosition(answerRows ?? [], session.question_ids as string[])
 
   const total = answers?.length ?? 0
   const correct = answers?.filter((a) => a.is_correct).length ?? 0
