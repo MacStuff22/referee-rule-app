@@ -50,10 +50,25 @@ export default async function ResultsPage({ params }: Props) {
 
   if (!session) redirect('/quiz')
 
-  const { data: answerRows } = await supabase
+  const { data: answerRows, error: answersError } = await supabase
     .from('quiz_answers')
     .select('*, questions(text, rule_number, category, rationale, options, correct_answers, question_type, sub_questions, video_path)')
     .eq('session_id', sessionId)
+
+  // A failed load must not render as an empty quiz ("0 of 0 correct") — that
+  // reads as lost progress when the answers are in fact saved.
+  if (answersError) {
+    console.error('Failed to load quiz results:', answersError.message)
+    return (
+      <div className="max-w-2xl mx-auto space-y-4 text-center pt-10">
+        <h1 className="text-2xl font-bold text-gray-900">We couldn&apos;t load your results</h1>
+        <p className="text-gray-500">
+          Your answers were saved — this is a display problem. Please try again in a moment.
+        </p>
+        <LinkButton href="/dashboard" variant="outline">Back to Dashboard</LinkButton>
+      </div>
+    )
+  }
 
   // Rows arrive in no guaranteed order — review in the order the quiz ran.
   const answers = orderByQuizPosition(answerRows ?? [], session.question_ids as string[])
