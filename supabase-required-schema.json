@@ -1,0 +1,242 @@
+{
+  "version": 1,
+  "description": "The database schema this code needs, as the END STATE each SQL file leaves behind. scripts/check-schema.mjs compares this with the live database (via public.list_schema_objects()) and stops a Vercel production deploy if something is missing. Every supabase-migration-*.sql file must have an entry here (a test enforces it) and every table/column/policy/constraint/function/trigger/bucket a file creates must appear in its entry, either under requires/advisory or under intentionallyUnchecked with a reason.",
+  "helperVersion": 1,
+  "migrations": [
+    {
+      "id": "base",
+      "file": "supabase-schema.sql",
+      "rerunSafe": false,
+      "note": "Original schema. Never re-run.",
+      "requires": {
+        "tables": ["profiles", "questions", "quiz_sessions", "quiz_answers", "rule_comparisons"],
+        "rls": ["profiles", "questions", "quiz_sessions", "quiz_answers", "rule_comparisons"],
+        "columns": [
+          "profiles.id", "profiles.email", "profiles.full_name", "profiles.role", "profiles.created_at",
+          "questions.id", "questions.text", "questions.answer_type", "questions.options", "questions.correct_answers",
+          "questions.rationale", "questions.rule_number", "questions.league", "questions.category",
+          "questions.question_type", "questions.is_approved", "questions.created_by", "questions.created_at",
+          "quiz_sessions.id", "quiz_sessions.user_id", "quiz_sessions.session_length", "quiz_sessions.question_ids",
+          "quiz_sessions.current_index", "quiz_sessions.started_at", "quiz_sessions.completed_at",
+          "quiz_answers.id", "quiz_answers.session_id", "quiz_answers.question_id", "quiz_answers.selected_answers",
+          "quiz_answers.is_correct", "quiz_answers.answered_at",
+          "rule_comparisons.id", "rule_comparisons.rule_number", "rule_comparisons.rule_name",
+          "rule_comparisons.category", "rule_comparisons.nhl_text", "rule_comparisons.ahl_text",
+          "rule_comparisons.has_difference", "rule_comparisons.created_at"
+        ],
+        "constraints": [
+          { "table": "profiles", "includes": ["'admin'", "'user'"] },
+          { "table": "questions", "includes": ["'multiple_choice'", "'multi_select'"] }
+        ],
+        "policies": [
+          { "schema": "public", "table": "profiles", "name": "Users can view own profile", "command": "SELECT" },
+          { "schema": "public", "table": "profiles", "name": "Admins can view all profiles", "command": "SELECT" },
+          { "schema": "public", "table": "questions", "name": "Users can view approved questions", "command": "SELECT" },
+          { "schema": "public", "table": "questions", "name": "Admins can manage all questions", "command": "ALL" },
+          { "schema": "public", "table": "rule_comparisons", "name": "All users can view rule comparisons", "command": "SELECT" },
+          { "schema": "public", "table": "rule_comparisons", "name": "Admins can manage rule comparisons", "command": "ALL" }
+        ],
+        "functions": ["handle_new_user"],
+        "triggers": [{ "schema": "auth", "table": "users", "name": "on_auth_user_created" }]
+      },
+      "intentionallyUnchecked": [
+        "policy Users can update own profile (re-created with a WITH CHECK by supabase-migration-role-escalation-fix.sql; checked there)",
+        "policy Users can manage own sessions (re-created with a WITH CHECK by supabase-migration-quiz-progress-integrity.sql; checked there)",
+        "policy Users can manage own answers (dropped by supabase-migration-answer-integrity.sql; must stay absent, checked there)"
+      ]
+    },
+    {
+      "id": "v2",
+      "file": "supabase-migration-v2.sql",
+      "rerunSafe": false,
+      "note": "NEVER re-run this file: its first statement sets every question to not approved.",
+      "requires": {
+        "columns": ["questions.handbook_section:text", "questions.situation_id:text", "questions.rule_references:text[]"]
+      }
+    },
+    {
+      "id": "compound",
+      "file": "supabase-migration-compound.sql",
+      "rerunSafe": true,
+      "requires": {
+        "columns": ["questions.sub_questions:jsonb"]
+      },
+      "intentionallyUnchecked": [
+        "constraint questions_question_type_check (re-created by supabase-migration-scoreboard.sql; checked there)"
+      ]
+    },
+    {
+      "id": "scoreboard",
+      "file": "supabase-migration-scoreboard.sql",
+      "rerunSafe": true,
+      "requires": {
+        "constraints": [
+          { "table": "questions", "name": "questions_question_type_check", "includes": ["'scoreboard'", "'compound'"] }
+        ]
+      }
+    },
+    {
+      "id": "penalty-table",
+      "file": "supabase-migration-penalty-table.sql",
+      "rerunSafe": true,
+      "requires": {
+        "columns": ["questions.penalty_table:jsonb"]
+      }
+    },
+    {
+      "id": "answer-integrity",
+      "file": "supabase-migration-answer-integrity.sql",
+      "rerunSafe": false,
+      "note": "Adds a unique rule so one question can only be answered once per quiz. Fails if duplicate answers already exist. Ask Claude for a patch rather than re-running.",
+      "requires": {
+        "constraints": [
+          { "table": "quiz_answers", "name": "quiz_answers_session_question_unique", "includes": ["UNIQUE (session_id, question_id)"] }
+        ],
+        "policies": [
+          { "schema": "public", "table": "quiz_answers", "name": "Users can view own answers", "command": "SELECT" },
+          { "schema": "public", "table": "quiz_answers", "name": "Users can insert own answers", "command": "INSERT", "withCheck": true }
+        ],
+        "absentPolicies": [
+          { "schema": "public", "table": "quiz_answers", "name": "Users can manage own answers" }
+        ]
+      }
+    },
+    {
+      "id": "quiz-paths-and-mastery",
+      "file": "supabase-migration-quiz-paths-and-mastery.sql",
+      "rerunSafe": false,
+      "requires": {
+        "tables": ["user_category_mastery", "quiz_paths"],
+        "rls": ["user_category_mastery", "quiz_paths"],
+        "columns": ["quiz_sessions.path_id:uuid"],
+        "constraints": [
+          { "table": "quiz_sessions", "name": "quiz_sessions_session_length_check", "includes": ["'path'"] },
+          { "table": "user_category_mastery", "includes": ["UNIQUE (user_id, category)"] }
+        ],
+        "policies": [
+          { "schema": "public", "table": "user_category_mastery", "name": "Admins can view all mastery", "command": "SELECT" },
+          { "schema": "public", "table": "quiz_paths", "name": "Admins can view all paths", "command": "SELECT" }
+        ]
+      },
+      "intentionallyUnchecked": [
+        "policy Users can manage own mastery (dropped by supabase-migration-quiz-progress-integrity.sql; must stay absent, checked there)",
+        "policy Users can manage own paths (re-created with a WITH CHECK by supabase-migration-quiz-progress-integrity.sql; checked there)"
+      ]
+    },
+    {
+      "id": "league-multiselect",
+      "file": "supabase-migration-league-multiselect.sql",
+      "rerunSafe": false,
+      "note": "Converts questions.league to a list. Not re-runnable once applied. Ask Claude for a patch.",
+      "requires": {
+        "columns": ["questions.league:text[]"],
+        "constraints": [
+          { "table": "questions", "name": "questions_league_check", "includes": ["cardinality(league)"] }
+        ]
+      }
+    },
+    {
+      "id": "situation-matches",
+      "file": "supabase-migration-situation-matches.sql",
+      "rerunSafe": false,
+      "requires": {
+        "tables": ["situation_matches"],
+        "rls": ["situation_matches"],
+        "constraints": [
+          { "table": "situation_matches", "name": "situation_matches_not_self" },
+          { "table": "situation_matches", "includes": ["UNIQUE (situation_id_a, situation_id_b)"] }
+        ],
+        "policies": [
+          { "schema": "public", "table": "situation_matches", "name": "Authenticated users can view situation matches", "command": "SELECT" },
+          { "schema": "public", "table": "situation_matches", "name": "Admins can manage situation matches", "command": "ALL" }
+        ]
+      }
+    },
+    {
+      "id": "role-escalation-fix",
+      "file": "supabase-migration-role-escalation-fix.sql",
+      "rerunSafe": true,
+      "requires": {
+        "functions": ["prevent_role_change"],
+        "triggers": [{ "schema": "public", "table": "profiles", "name": "prevent_role_change" }],
+        "policies": [
+          { "schema": "public", "table": "profiles", "name": "Users can update own profile", "command": "UPDATE", "withCheck": true }
+        ]
+      }
+    },
+    {
+      "id": "quiz-progress-integrity",
+      "file": "supabase-migration-quiz-progress-integrity.sql",
+      "rerunSafe": true,
+      "requires": {
+        "policies": [
+          { "schema": "public", "table": "quiz_sessions", "name": "Users can manage own sessions", "command": "ALL", "withCheck": true },
+          { "schema": "public", "table": "quiz_paths", "name": "Users can manage own paths", "command": "ALL", "withCheck": true },
+          { "schema": "public", "table": "user_category_mastery", "name": "Users can view own mastery", "command": "SELECT" }
+        ],
+        "absentPolicies": [
+          { "schema": "public", "table": "user_category_mastery", "name": "Users can manage own mastery" }
+        ]
+      },
+      "advisory": {
+        "updateGrants": [
+          { "table": "quiz_sessions", "exactColumns": ["current_index", "completed_at"] },
+          { "table": "quiz_paths", "exactColumns": ["status", "questions_per_day", "target_end_date"] }
+        ]
+      }
+    },
+    {
+      "id": "admin-audit-log",
+      "file": "supabase-migration-admin-audit-log.sql",
+      "rerunSafe": false,
+      "requires": {
+        "tables": ["admin_audit_log"],
+        "rls": ["admin_audit_log"],
+        "policies": [
+          { "schema": "public", "table": "admin_audit_log", "name": "Admins can view audit log", "command": "SELECT" }
+        ]
+      }
+    },
+    {
+      "id": "profiles-email-integrity",
+      "file": "supabase-migration-profiles-email-integrity.sql",
+      "rerunSafe": false,
+      "requires": {
+        "constraints": [{ "table": "profiles", "name": "profiles_email_unique", "includes": ["UNIQUE (email)"] }],
+        "functions": ["handle_user_email_update"],
+        "triggers": [{ "schema": "auth", "table": "users", "name": "on_auth_user_email_updated" }]
+      }
+    },
+    {
+      "id": "video",
+      "file": "supabase-migration-video.sql",
+      "rerunSafe": true,
+      "requires": {
+        "columns": ["questions.video_path:text", "questions.video_plays:integer"],
+        "tables": ["question_admin_notes"],
+        "rls": ["question_admin_notes"],
+        "constraints": [
+          { "table": "questions", "name": "questions_video_plays_check", "includes": ["video_plays"] }
+        ],
+        "policies": [
+          { "schema": "public", "table": "question_admin_notes", "name": "Admins can manage question notes", "command": "ALL", "withCheck": true },
+          { "schema": "storage", "table": "objects", "name": "Admins can upload question videos", "command": "INSERT" },
+          { "schema": "storage", "table": "objects", "name": "Admins can update question videos", "command": "UPDATE" },
+          { "schema": "storage", "table": "objects", "name": "Admins can delete question videos", "command": "DELETE" }
+        ],
+        "buckets": [
+          { "id": "question-videos", "public": false, "fileSizeLimit": 52428800, "allowedMimeTypes": ["video/mp4"] }
+        ]
+      }
+    },
+    {
+      "id": "schema-check",
+      "file": "supabase-migration-schema-check.sql",
+      "rerunSafe": true,
+      "note": "Creates the read-only report this check itself uses.",
+      "requires": {
+        "functions": ["list_schema_objects"]
+      }
+    }
+  ]
+}
