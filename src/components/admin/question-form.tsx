@@ -21,6 +21,7 @@ import {
   buildQuestionDbPayload, buildVideoPath, clampPlays, formatBytes, videoFileProblem, videoFileWarnings,
 } from '@/lib/video'
 import { describeSaveError, isSchemaMissingError, VIDEO_MIGRATION_HINT } from '@/lib/schemaError'
+import { isAtUrl } from '@/lib/navigation'
 import type { SinglePenalty } from '@/types/scoreboard'
 import type { League, Question, SubQuestion } from '@/types'
 
@@ -367,6 +368,10 @@ export default function QuestionForm({ question, initialVideoNotes = '' }: Props
   // the latest values without needing to resubscribe on every change.
   const isDirtyRef = useRef(isDirty)
   const backUrlRef = useRef(backUrl)
+  // Set once a save succeeds. The baseline snapshot above is captured only on
+  // first render, so after a save the form still *looks* edited — this flag
+  // keeps the guard from blocking the redirect that follows a successful save.
+  const savedRef = useRef(false)
   useEffect(() => {
     isDirtyRef.current = isDirty
     backUrlRef.current = backUrl
@@ -375,13 +380,29 @@ export default function QuestionForm({ question, initialVideoNotes = '' }: Props
   const UNSAVED_CHANGES_MESSAGE = 'You have unsaved changes to this question. Leave without saving?'
 
   function confirmLeave(): boolean {
-    return !isDirty || window.confirm(UNSAVED_CHANGES_MESSAGE)
+    return savedRef.current || !isDirty || window.confirm(UNSAVED_CHANGES_MESSAGE)
+  }
+
+  /**
+   * Leaves the form after a successful save. The form is marked clean first so
+   * the unsaved-changes guard can't block the exit, then a soft client-side
+   * navigation is attempted; if the page hasn't changed shortly after (a
+   * stalled soft navigation), a hard navigation takes over.
+   */
+  function leaveAfterSave(url: string) {
+    savedRef.current = true
+    isDirtyRef.current = false
+    router.push(url)
+    router.refresh()
+    window.setTimeout(() => {
+      if (!isAtUrl(window.location.pathname, url)) window.location.assign(url)
+    }, 3000)
   }
 
   // Tab close / refresh / typing a new URL — browser's own generic prompt.
   useEffect(() => {
     function handleBeforeUnload(e: BeforeUnloadEvent) {
-      if (!isDirtyRef.current) return
+      if (savedRef.current || !isDirtyRef.current) return
       e.preventDefault()
       e.returnValue = ''
     }
@@ -403,7 +424,7 @@ export default function QuestionForm({ question, initialVideoNotes = '' }: Props
 
   useEffect(() => {
     function handlePopState() {
-      if (!isDirtyRef.current) return
+      if (savedRef.current || !isDirtyRef.current) return
       if (window.confirm(UNSAVED_CHANGES_MESSAGE)) {
         // A hard navigation, not router.push — Next's own popstate handling
         // fires on this same event and reliably wins a race against a
@@ -634,6 +655,8 @@ export default function QuestionForm({ question, initialVideoNotes = '' }: Props
       // it just won't chain through the rest via Save & Next.
     }
     setMatchPrompt(null)
+    savedRef.current = true // the question was already saved; don't let the guard block moving on
+    isDirtyRef.current = false
     router.push(`/admin/questions/${questionIds[0]}`)
   }
 
@@ -837,46 +860,73 @@ export default function QuestionForm({ question, initialVideoNotes = '' }: Props
       return { success: false }
     }
 
-    // The question row now points at finalVideoPath — drop the clip it used before.
+    // The question row is saved. Everything below is housekeeping: a failure
+    // here is reported but must never stop the redirect (or, worse, make the
+    // admin think the question wasn't saved and create it twice).
     const previousPath = savedVideoPathRef.current
-    if (previousPath && previousPath !== finalVideoPath) {
-      await supabase.storage.from(VIDEO_BUCKET).remove([previousPath])
-    }
     savedVideoPathRef.current = finalVideoPath
-    if (finalVideoPath) setVideoPath(finalVideoPath)
-    if (uploadedPath) clearVideoFile()
-
-    // Admin-only source notes live in their own table so quiz takers can never receive them.
-    if (savedId) {
-      const notes = videoNotes.trim()
-      let notesError: { message: string } | null = null
-      if (videoActive && notes) {
-        const { error } = await supabase
-          .from('question_admin_notes')
-          .upsert({ question_id: savedId, notes, updated_at: new Date().toISOString() })
-        notesError = error
-      } else if (initialVideoNotes) {
-        const { error } = await supabase.from('question_admin_notes').delete().eq('question_id', savedId)
-        notesError = error
+    try {
+      // The row now points at finalVideoPath — drop the clip it used before.
+      if (previousPath && previousPath !== finalVideoPath) {
+        await supabase.storage.from(VIDEO_BUCKET).remove([previousPath])
       }
-      if (notesError) window.alert(`The question was saved, but its source notes could not be saved: ${notesError.message}`)
+      if (finalVideoPath) setVideoPath(finalVideoPath)
+      if (uploadedPath) clearVideoFile()
+
+      // Admin-only source notes live in their own table so quiz takers can never receive them.
+      if (savedId) {
+        const notes = videoNotes.trim()
+        let notesError: { message: string } | null = null
+        if (videoActive && notes) {
+          const { error } = await supabase
+            .from('question_admin_notes')
+            .upsert({ question_id: savedId, notes, updated_at: new Date().toISOString() })
+          notesError = error
+        } else if (initialVideoNotes) {
+          const { error } = await supabase.from('question_admin_notes').delete().eq('question_id', savedId)
+          notesError = error
+        }
+        if (notesError) window.alert(`The question was saved, but its source notes could not be saved: ${notesError.message}`)
+      }
+    } catch (e) {
+      console.error('Post-save video cleanup failed', e)
+      window.alert(`The question was saved, but a follow-up step failed: ${e instanceof Error ? e.message : String(e)}`)
     }
 
     setSaving(false)
     return { success: true, payload, hasVideo: !!finalVideoPath }
   }
 
+  // Anything unexpected after the save started is shown to the admin instead of
+  // being swallowed (an unhandled rejection looks exactly like "nothing happened").
+  function reportUnexpectedSaveError(e: unknown) {
+    console.error('Saving the question failed unexpectedly', e)
+    setSaving(false)
+    setError(
+      `Something went wrong while saving: ${e instanceof Error ? e.message : String(e)}. ` +
+      'The question may already have been saved — check the Questions list before trying again.'
+    )
+  }
+
   async function handleSave() {
-    const result = await doSave()
-    if (!result.success) return
-    await maybeShowMatchPrompt(result.payload!, () => { router.push(backUrl); router.refresh() }, result.hasVideo)
+    try {
+      const result = await doSave()
+      if (!result.success) return
+      await maybeShowMatchPrompt(result.payload!, () => leaveAfterSave(backUrl), result.hasVideo)
+    } catch (e) {
+      reportUnexpectedSaveError(e)
+    }
   }
 
   async function handleSaveAndNext() {
     if (!nextId) return
-    const result = await doSave()
-    if (!result.success) return
-    await maybeShowMatchPrompt(result.payload!, () => { router.push(`/admin/questions/${nextId}`); router.refresh() }, result.hasVideo)
+    try {
+      const result = await doSave()
+      if (!result.success) return
+      await maybeShowMatchPrompt(result.payload!, () => leaveAfterSave(`/admin/questions/${nextId}`), result.hasVideo)
+    } catch (e) {
+      reportUnexpectedSaveError(e)
+    }
   }
 
   async function deleteQuestion() {
@@ -887,8 +937,7 @@ export default function QuestionForm({ question, initialVideoNotes = '' }: Props
     if (savedVideoPathRef.current) {
       await supabase.storage.from(VIDEO_BUCKET).remove([savedVideoPathRef.current])
     }
-    router.push('/admin/questions')
-    router.refresh()
+    leaveAfterSave('/admin/questions')
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
