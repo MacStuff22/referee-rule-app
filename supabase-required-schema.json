@@ -176,9 +176,7 @@
         ],
         "absentPolicies": [
           { "schema": "public", "table": "user_category_mastery", "name": "Users can manage own mastery" }
-        ]
-      },
-      "advisory": {
+        ],
         "updateGrants": [
           { "table": "quiz_sessions", "exactColumns": ["current_index", "completed_at"] },
           { "table": "quiz_paths", "exactColumns": ["status", "questions_per_day", "target_end_date"] }

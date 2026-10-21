@@ -10,7 +10,8 @@ Always address the user as "Morgan" at the start of each response.
 
 ```bash
 npm run dev          # start dev server (localhost:3000)
-npm run build         # production build — run this before committing; it is the fastest way to catch type errors
+npm run build         # production build — run this before committing; it is the fastest way to catch type errors. Runs the schema check first (warns locally; fails a Vercel production build if required SQL hasn't been run)
+npm run check:schema  # verify the live database has everything this code needs (strict: exits 1 on a gap, 2 if it couldn't check)
 npm run lint          # eslint (flat config, next/core-web-vitals + next/typescript)
 npm test              # vitest run (single pass)
 npm run test:watch    # vitest watch mode
@@ -22,7 +23,24 @@ There is no CI pipeline in this repo — `npm run build` succeeding locally is t
 
 ## Deploy workflow
 
-This project has no `git push` step performed by Claude. Morgan syncs commits to GitHub via GitHub Desktop (this appears to happen automatically/quickly after a local commit — verify with `git fetch && git log origin/main..HEAD` before assuming something is unpushed). Vercel auto-deploys from GitHub `main`. Production is at `https://referee-rule-app.vercel.app/`. If a change isn't showing in production after being committed, check the Vercel dashboard's Deployments tab for build failures rather than assuming the push didn't happen.
+This project has no `git push` step performed by Claude. Morgan syncs commits to GitHub via GitHub Desktop (this appears to happen automatically/quickly after a local commit — verify with `git fetch && git log origin/main..HEAD` before assuming something is unpushed). Vercel auto-deploys from GitHub `main`. Production is at `https://referee-rule-app.vercel.app/`. If a change isn't showing in production after being committed, check the Vercel dashboard's Deployments tab for build failures rather than assuming the push didn't happen. Because commits sync and deploy within minutes, any change that needs a SQL change must have that SQL run **before the commit** — see the next section.
+
+## Database migrations & deploy order
+
+Schema changes are applied by hand in the Supabase SQL Editor (Morgan declined giving Claude direct DB access), but code deploys automatically on every push. That gap has bitten three times: the league constraint (Sep 5), the `quiz_answers` lockdown (the unique constraint was applied but the policies never were, found Oct 21), and video questions (Oct 12 — the results page and admin saves broke for 8 days).
+
+**The contract.** `supabase-required-schema.json` lists what each `supabase-migration-*.sql` must leave in the database (tables, columns with types, constraints matched by *definition*, policies, policies that must stay absent, triggers, functions, storage buckets, column-level update grants). `scripts/check-schema.mjs` compares it with the live database through a read-only helper (`supabase-migration-schema-check.sql`, already installed; only the server key can call it). On a **Vercel production build** a definite gap fails the build, so the last working deployment stays live; locally it only warns. If the check itself can't run (no credentials, network, Supabase down) it never blocks a deploy, and a manual `npm run check:schema` then exits 2 and never prints PASSED.
+
+**Rules for any change that needs schema:**
+1. Ship an idempotent SQL file (`if not exists`, `drop policy if exists` before `create policy`, guarded `add constraint`) ending in `notify pgrst, 'reload schema';`. Create new policies before dropping the ones they replace.
+2. Register it in `supabase-required-schema.json`. A test fails if a `supabase-migration-*.sql` file isn't listed, or if a file creates a table/column/policy/constraint/function/trigger/bucket its entry doesn't account for (under `requires`, or under `intentionallyUnchecked` with a reason). Describe the **end state**, not what each file authors: match constraints by definition (several are auto-named and re-added under the same name), and list a policy a later file replaces under the file that leaves its final form.
+3. Never let an optional feature's schema into a core flow. Reads: use `select('*')` or a separate best-effort query that swallows failure (see `src/lib/quiz/reviewClips.ts`; `resultsPageGuard.test.ts` enforces it for the results page). Writes fail on unknown columns, so include optional columns in insert/update payloads only when the feature is in use (see `buildQuestionDbPayload` in `src/lib/video.ts`).
+4. Order of work: write the SQL -> hand it to Morgan -> **lead the hand-off with "run this SQL BEFORE I commit"** -> after Morgan confirms, `npm run check:schema` must PASS -> only then commit.
+5. Never re-run `supabase-migration-v2.sql` (its first statement un-approves every question). The manifest marks which files are safe to re-run (`rerunSafe`); for a partly-applied file that isn't, write a patch instead of telling Morgan to re-run it.
+
+**If a production build is blocked:** run the SQL named in the Vercel build log, then Vercel -> Deployments -> the failed one -> Redeploy (no new push needed). Emergency bypass: set `SKIP_SCHEMA_CHECK=1` in Vercel's Production environment variables, redeploy, then remove it. `SCHEMA_CHECK_SELFTEST=1` injects a fake missing table to prove the gate still fails a production build.
+
+**Vercel settings the gate depends on** (Morgan should confirm they stay as-is): "Automatically expose System Environment Variables" must be on (otherwise `VERCEL_ENV` is undefined and the gate never enforces), and the project's Build Command must not be overridden (otherwise this `package.json` script is ignored). Never add a `vercel-build` script — it takes precedence over `build`.
 
 ## Testing as a logged-in user
 
@@ -47,7 +65,7 @@ For any non-trivial feature or fix, follow Explore → Plan → Code → Commit:
 1. Start a new chat scoped to the task rather than growing one long-running "build" chat — a fresh session re-reads the actual current code instead of leaning on memory of unrelated past turns. Keep content/data work (writing or curating handbook questions) in its own separate chat.
 2. Use Plan Mode to explore the codebase and produce a written plan before any code changes; answer clarifying questions when asked rather than letting ambiguous requirements get guessed at.
 3. Once the plan is approved, implement in that same session.
-4. Before committing: `npm run build && npm test` — this is the only real gate, since there's no CI.
+4. Before committing: `npm run build && npm test` — this is the only real gate, since there's no CI. If the work needs SQL, `npm run check:schema` must also pass, after Morgan has run it (see Database migrations & deploy order).
 5. Run `/code-review` before committing. Use `/security-review` instead for anything touching permissions, RLS policies, or auth. For large or newly-built features, use `/code-review ultra` for a deeper multi-agent review.
 6. Commit locally — Morgan syncs to GitHub via GitHub Desktop (see Deploy workflow above).
 
