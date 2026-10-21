@@ -9,8 +9,7 @@ import { decodeCompoundAnswer, decodeScoreboardAnswer } from '@/lib/quiz/answers
 import { parseScoreboardConfig } from '@/types/scoreboard'
 import { formatGT } from '@/lib/scoreboard'
 import { orderByQuizPosition } from '@/lib/quiz/review'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { VIDEO_BUCKET, VIDEO_SIGNED_URL_SECONDS, isValidVideoPath } from '@/lib/video'
+import { getReviewClipUrls } from '@/lib/quiz/reviewClips'
 
 /** Collapsed by default with preload="none", so a review page full of clips downloads nothing until one is opened. */
 function ReviewClip({ url }: { url: string | undefined }) {
@@ -52,7 +51,7 @@ export default async function ResultsPage({ params }: Props) {
 
   const { data: answerRows, error: answersError } = await supabase
     .from('quiz_answers')
-    .select('*, questions(text, rule_number, category, rationale, options, correct_answers, question_type, sub_questions, video_path)')
+    .select('*, questions(text, rule_number, category, rationale, options, correct_answers, question_type, sub_questions)')
     .eq('session_id', sessionId)
 
   // A failed load must not render as an empty quiz ("0 of 0 correct") — that
@@ -73,23 +72,14 @@ export default async function ResultsPage({ params }: Props) {
   // Rows arrive in no guaranteed order — review in the order the quiz ran.
   const answers = orderByQuizPosition(answerRows ?? [], session.question_ids as string[])
 
-  // Signed URLs for any clips in this review. The answer rows above were read
-  // under the user's own RLS, so only clips from questions they were actually
-  // served get signed.
-  const videoUrlByQuestionId = new Map<string, string>()
-  type ClipRow = { question_id: string; questions: { video_path: string } }
-  const clipRows = (answers as unknown as ClipRow[]).filter((a) => isValidVideoPath(a.questions?.video_path))
-  if (clipRows.length > 0) {
-    const paths = [...new Set<string>(clipRows.map((a) => a.questions.video_path))]
-    const { data: signed } = await createAdminClient()
-      .storage.from(VIDEO_BUCKET)
-      .createSignedUrls(paths, VIDEO_SIGNED_URL_SECONDS)
-    const urlByPath = new Map((signed ?? []).filter((s) => s.signedUrl).map((s) => [s.path, s.signedUrl]))
-    for (const a of clipRows) {
-      const url = urlByPath.get(a.questions.video_path)
-      if (url) videoUrlByQuestionId.set(a.question_id, url)
-    }
-  }
+  // Clips are an optional extra, loaded separately so that a missing video
+  // schema, a Storage outage or a slow signing call can only ever mean "no
+  // clips" -- never a broken results page. Do not add video_path to the core
+  // query above.
+  const videoUrlByQuestionId = await getReviewClipUrls(
+    supabase,
+    answers.map((a) => a.question_id as string)
+  )
 
   const total = answers?.length ?? 0
   const correct = answers?.filter((a) => a.is_correct).length ?? 0

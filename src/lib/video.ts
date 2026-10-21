@@ -26,6 +26,25 @@ export function clampPlays(value: unknown): number {
   return Math.min(MAX_VIDEO_PLAYS, Math.max(MIN_VIDEO_PLAYS, Math.round(n)))
 }
 
+/**
+ * Builds the row written to `questions` on save. The video columns only exist
+ * once supabase-migration-video.sql has been run, and PostgREST rejects a write
+ * that names an unknown column — so they are included ONLY when the question
+ * has, had, or is getting a clip. Saving or approving an ordinary question must
+ * never depend on the video schema.
+ */
+export function buildQuestionDbPayload<T extends Record<string, unknown>>(
+  payload: T,
+  video: { active: boolean; hadSaved: boolean; path: string; plays: number }
+): T & { video_path?: string; video_plays?: number } {
+  if (!video.active && !video.hadSaved) return payload
+  return {
+    ...payload,
+    video_path: video.active ? video.path : '',
+    video_plays: video.active ? clampPlays(video.plays) : DEFAULT_VIDEO_PLAYS,
+  }
+}
+
 export function buildVideoPath(id: string): string {
   return `questions/${id}.mp4`
 }

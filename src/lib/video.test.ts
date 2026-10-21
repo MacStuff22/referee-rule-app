@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   clampPlays,
+  buildQuestionDbPayload,
   buildVideoPath,
   isValidVideoPath,
   videoFileProblem,
@@ -70,5 +71,32 @@ describe('videoFileWarnings', () => {
   })
   it('can raise both warnings', () => {
     expect(videoFileWarnings(VIDEO_WARN_BYTES + 1, 75)).toHaveLength(2)
+  })
+})
+
+describe('buildQuestionDbPayload', () => {
+  const base = { text: 'q', category: 'c' }
+
+  it('leaves a question that never had a video completely untouched (no video keys at all)', () => {
+    const out = buildQuestionDbPayload(base, { active: false, hadSaved: false, path: '', plays: 2 })
+    expect(out).toEqual(base)
+    expect('video_path' in out).toBe(false)
+    expect('video_plays' in out).toBe(false)
+  })
+
+  it('includes the clip and a clamped play count when a video is in use', () => {
+    const out = buildQuestionDbPayload(base, { active: true, hadSaved: false, path: 'questions/a.mp4', plays: 99 })
+    expect(out).toEqual({ ...base, video_path: 'questions/a.mp4', video_plays: 5 })
+  })
+
+  it('clears the clip when a previously saved video is switched off', () => {
+    const out = buildQuestionDbPayload(base, { active: false, hadSaved: true, path: 'questions/a.mp4', plays: 4 })
+    expect(out).toEqual({ ...base, video_path: '', video_plays: 2 })
+  })
+
+  it('does not mutate its input', () => {
+    const input = { ...base }
+    buildQuestionDbPayload(input, { active: true, hadSaved: true, path: 'questions/a.mp4', plays: 2 })
+    expect(input).toEqual(base)
   })
 })

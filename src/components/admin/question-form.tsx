@@ -18,8 +18,9 @@ import { PENALTY_TABLE_MARKER, hasPenaltyTableMarker } from '@/lib/penaltyTable'
 import { getMatchesForSituation, getQuestionsBySituationIds, otherSituationId } from '@/lib/situationMatches'
 import {
   VIDEO_BUCKET, DEFAULT_VIDEO_PLAYS, MIN_VIDEO_PLAYS, MAX_VIDEO_PLAYS,
-  buildVideoPath, clampPlays, formatBytes, videoFileProblem, videoFileWarnings,
+  buildQuestionDbPayload, buildVideoPath, clampPlays, formatBytes, videoFileProblem, videoFileWarnings,
 } from '@/lib/video'
+import { describeSaveError, isSchemaMissingError, VIDEO_MIGRATION_HINT } from '@/lib/schemaError'
 import type { SinglePenalty } from '@/types/scoreboard'
 import type { League, Question, SubQuestion } from '@/types'
 
@@ -796,17 +797,22 @@ export default function QuestionForm({ question, initialVideoNotes = '' }: Props
         .upload(path, videoFile, { contentType: 'video/mp4', upsert: false })
       if (uploadError) {
         setSaving(false)
-        setError(`Couldn't upload the clip: ${uploadError.message}`)
+        setError(isSchemaMissingError(uploadError) ? VIDEO_MIGRATION_HINT : `Couldn't upload the clip: ${uploadError.message}`)
         return { success: false }
       }
       uploadedPath = path
     }
     const finalVideoPath = videoActive ? (uploadedPath ?? videoPath) : ''
-    const dbPayload = {
-      ...payload,
-      video_path: finalVideoPath,
-      video_plays: videoActive ? clampPlays(videoPlays) : DEFAULT_VIDEO_PLAYS,
-    }
+    // The video columns are only written when this question has, had or is
+    // getting a clip, so saving or approving an ordinary question never depends
+    // on the video migration having been run.
+    const hasVideoInvolved = videoActive || !!savedVideoPathRef.current
+    const dbPayload = buildQuestionDbPayload(payload, {
+      active: videoActive,
+      hadSaved: !!savedVideoPathRef.current,
+      path: finalVideoPath,
+      plays: videoPlays,
+    })
 
     let err
     let savedId = question?.id
@@ -827,7 +833,7 @@ export default function QuestionForm({ question, initialVideoNotes = '' }: Props
     if (err) {
       if (uploadedPath) await supabase.storage.from(VIDEO_BUCKET).remove([uploadedPath])
       setSaving(false)
-      setError(err.message)
+      setError(describeSaveError(err, { hasVideo: hasVideoInvolved }))
       return { success: false }
     }
 
