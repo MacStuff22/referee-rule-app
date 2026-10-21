@@ -13,10 +13,15 @@
 -- DELETE for regular users -- denied by default), and adds a uniqueness
 -- constraint so a session can only ever have one answer row per question,
 -- closing a duplicate-row replay path too.
+--
+-- SAFE TO RUN MORE THAN ONCE. It used to fail on a second run (the unique
+-- constraint already existed), which is how the constraint ended up applied
+-- while the policies were not. Every statement is now guarded, and the new
+-- policies are created BEFORE the old one is dropped so users are never left
+-- without access part-way through.
 -- ============================================================
 
-drop policy if exists "Users can manage own answers" on public.quiz_answers;
-
+drop policy if exists "Users can view own answers" on public.quiz_answers;
 create policy "Users can view own answers"
   on public.quiz_answers for select
   using (exists (
@@ -24,6 +29,7 @@ create policy "Users can view own answers"
     where id = quiz_answers.session_id and user_id = auth.uid()
   ));
 
+drop policy if exists "Users can insert own answers" on public.quiz_answers;
 create policy "Users can insert own answers"
   on public.quiz_answers for insert
   with check (exists (
@@ -31,5 +37,19 @@ create policy "Users can insert own answers"
     where id = quiz_answers.session_id and user_id = auth.uid()
   ));
 
-alter table public.quiz_answers
-  add constraint quiz_answers_session_question_unique unique (session_id, question_id);
+-- Last: only now remove the permissive policy the two above replace.
+drop policy if exists "Users can manage own answers" on public.quiz_answers;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'quiz_answers_session_question_unique'
+      and conrelid = 'public.quiz_answers'::regclass
+  ) then
+    alter table public.quiz_answers
+      add constraint quiz_answers_session_question_unique unique (session_id, question_id);
+  end if;
+end $$;
+
+notify pgrst, 'reload schema';

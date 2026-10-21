@@ -30,7 +30,6 @@
         ],
         "policies": [
           { "schema": "public", "table": "profiles", "name": "Users can view own profile", "command": "SELECT" },
-          { "schema": "public", "table": "profiles", "name": "Admins can view all profiles", "command": "SELECT" },
           { "schema": "public", "table": "questions", "name": "Users can view approved questions", "command": "SELECT" },
           { "schema": "public", "table": "questions", "name": "Admins can manage all questions", "command": "ALL" },
           { "schema": "public", "table": "rule_comparisons", "name": "All users can view rule comparisons", "command": "SELECT" },
@@ -40,6 +39,7 @@
         "triggers": [{ "schema": "auth", "table": "users", "name": "on_auth_user_created" }]
       },
       "intentionallyUnchecked": [
+        "policy Admins can view all profiles (not present in production and not needed: admin pages read profiles with the server key. As written it queries profiles from inside a profiles policy, which Postgres rejects as infinite recursion, so do not re-create it)",
         "policy Users can update own profile (re-created with a WITH CHECK by supabase-migration-role-escalation-fix.sql; checked there)",
         "policy Users can manage own sessions (re-created with a WITH CHECK by supabase-migration-quiz-progress-integrity.sql; checked there)",
         "policy Users can manage own answers (dropped by supabase-migration-answer-integrity.sql; must stay absent, checked there)"
@@ -86,8 +86,8 @@
     {
       "id": "answer-integrity",
       "file": "supabase-migration-answer-integrity.sql",
-      "rerunSafe": false,
-      "note": "Adds a unique rule so one question can only be answered once per quiz. Fails if duplicate answers already exist. Ask Claude for a patch rather than re-running.",
+      "rerunSafe": true,
+      "note": "Locks down quiz_answers: users can only view and insert their own answers (no edit/delete), and one answer per question per quiz. Safe to run more than once.",
       "requires": {
         "constraints": [
           { "table": "quiz_answers", "name": "quiz_answers_session_question_unique", "includes": ["UNIQUE (session_id, question_id)"] }
