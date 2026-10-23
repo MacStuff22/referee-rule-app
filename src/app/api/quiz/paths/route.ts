@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { computeQuestionsPerDay, computeTargetEndDate } from '@/lib/quiz/paths'
+import { computeQuestionsPerDay, computeTargetEndDate, localDateString } from '@/lib/quiz/paths'
+import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import { resolvePool } from '@/lib/quiz/pool'
 import type { PathPoolFilter } from '@/types'
 
@@ -32,9 +33,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 400 })
   }
 
-  // The pace math uses the same date-only start that is stored, so the daily
-  // count never depends on what time of day the plan was created.
-  const startDateIso = new Date().toISOString().slice(0, 10)
+  // A plan starts on the creator's own calendar date, and the pace math uses
+  // that same date-only start, so the daily count never depends on the hour.
+  const startDateIso = localDateString(new Date(), await getRequestTimeZone())
   const startDate = new Date(startDateIso)
 
   let questionsPerDay: number

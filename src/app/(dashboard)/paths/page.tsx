@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LinkButton } from '@/components/ui/link-button'
 import { getPathProgress, PACE_LABEL } from '@/lib/quiz/pathProgress'
+import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import type { QuizPath } from '@/types'
 
 export default async function PathsPage() {
@@ -19,8 +20,10 @@ export default async function PathsPage() {
     .eq('user_id', user.id)
     .order('created_at', { ascending: false })
 
+  const timeZone = await getRequestTimeZone()
+  const now = new Date()
   const withProgress = await Promise.all(
-    ((paths ?? []) as QuizPath[]).map(async (path) => ({ path, progress: await getPathProgress(supabase, path) }))
+    ((paths ?? []) as QuizPath[]).map(async (path) => ({ path, progress: await getPathProgress(supabase, path, now, timeZone) }))
   )
 
   return (

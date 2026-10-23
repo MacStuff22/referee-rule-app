@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { weightForCategory, MASTERY_CONFIG, type CategoryMasteryRow } from '@/lib/quiz/mastery'
-import { remainingScheduledDays, reflowPace, reservedCoverageSlots, computeTargetEndDate } from '@/lib/quiz/paths'
+import { remainingScheduledDays, reflowPace, reservedCoverageSlots, computeTargetEndDate, calendarDay } from '@/lib/quiz/paths'
+import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
 import { getPathAnswers } from '@/lib/quiz/pathProgress'
 import { weightedSampleWithoutReplacement } from '@/lib/quiz/sampling'
@@ -87,13 +88,14 @@ export async function POST(request: Request, { params }: Params) {
 
   // Reflow the pace every time — this both catches up a missed day and
   // relaxes pace if the user is ahead, rather than only reacting to misses.
-  const remaining = remainingScheduledDays(now, new Date(path.target_end_date), path.days_per_week)
+  const timeZone = await getRequestTimeZone()
+  const remaining = remainingScheduledDays(now, new Date(path.target_end_date), path.days_per_week, timeZone)
   const reflow = reflowPace(uncoveredPool.length, remaining, path.questions_per_day)
 
   const updates: Record<string, string | number> = {}
   if (reflow.questionsPerDay !== path.questions_per_day) updates.questions_per_day = reflow.questionsPerDay
   if (reflow.extendEndDate) {
-    updates.target_end_date = computeTargetEndDate(uncoveredPool.length, reflow.questionsPerDay, now, path.days_per_week)
+    updates.target_end_date = computeTargetEndDate(uncoveredPool.length, reflow.questionsPerDay, calendarDay(now, timeZone), path.days_per_week)
       .toISOString()
       .slice(0, 10)
   }

@@ -15,12 +15,16 @@
 // date: both dates are study days (Oct 1 to Oct 10 is 10 days, so 100
 // questions is 10 a day). Every helper below measures the span that way, so
 // the creation screen, the daily count, reflow and the pace line always agree.
+// A study day starts at midnight in the viewer's time zone (lib/timeZone.ts),
+// so "today", "yesterday" and the days left are whole calendar days there.
 // computePace answers "where should you be by now?" as a straight line
 // from the start to the deadline. It deliberately ignores the stored
 // questions_per_day: reflowPace rewrites that on every daily quiz, so
 // multiplying it by the days already elapsed rewrites history (it pinned
 // the marker at 100% nine days before a deadline).
 // ============================================================
+
+import { DEFAULT_PLAN_TIME_ZONE } from '@/lib/timeZone'
 
 export const PATH_CONFIG = {
   reflowCeilingMultiplier: 2,
@@ -37,9 +41,16 @@ export function finishDateEnds(targetEndDate: Date): Date {
   return new Date(targetEndDate.getTime() + MS_PER_DAY)
 }
 
-/** The UTC calendar day of `date` at midnight — the same date the API stores as a plan's start_date. */
-export function utcDateOnly(date: Date): Date {
-  return new Date(date.toISOString().slice(0, 10))
+/** The calendar date (YYYY-MM-DD) on the wall clock in `timeZone` at the instant `at`. */
+export function localDateString(at: Date, timeZone: string = DEFAULT_PLAN_TIME_ZONE): string {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(at)
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
+
+/** That calendar date as a UTC-midnight Date — the same form a plan's start and finish dates are held in. */
+export function calendarDay(at: Date, timeZone: string = DEFAULT_PLAN_TIME_ZONE): Date {
+  return new Date(localDateString(at, timeZone))
 }
 
 export function scheduledDaysBetween(startDate: Date, endDate: Date, daysPerWeek: number): number {
@@ -53,11 +64,15 @@ export function scheduledDaysBetween(startDate: Date, endDate: Date, daysPerWeek
  * reflowPace and reservedCoverageSlots to cram everything remaining into today
  * rather than dividing by a phantom day.
  */
-export function remainingScheduledDays(today: Date, targetEndDate: Date, daysPerWeek: number): number {
-  const endsAt = finishDateEnds(targetEndDate)
-  if (today >= endsAt) return 0
-  // Whole days after today (counted the same way computePace counts elapsed days), plus today.
-  const daysLeft = daysBetween(today, endsAt) + 1
+export function remainingScheduledDays(
+  today: Date,
+  targetEndDate: Date,
+  daysPerWeek: number,
+  timeZone: string = DEFAULT_PLAN_TIME_ZONE
+): number {
+  const todayDate = calendarDay(today, timeZone)
+  if (todayDate > targetEndDate) return 0
+  const daysLeft = daysBetween(todayDate, targetEndDate) + 1 // today through the finish date
   return Math.round(daysLeft * (daysPerWeek / 7))
 }
 
@@ -119,6 +134,8 @@ export interface PaceInput {
   targetEndDate: Date
   daysPerWeek: number
   today: Date
+  /** Where a day starts and ends; defaults to Eastern. */
+  timeZone?: string
 }
 
 export interface PaceResult {
@@ -140,16 +157,29 @@ export interface PaceResult {
  * still-open share, so it reads "due-today" rather than "behind" until a full
  * day has actually been missed.
  */
-export function computePace({ poolSize, coveredCount, startDate, targetEndDate, daysPerWeek, today }: PaceInput): PaceResult {
-  const endsAt = finishDateEnds(targetEndDate)
-  const total = scheduledDaysBetween(startDate, endsAt, daysPerWeek)
-  const elapsed = (at: Date) =>
-    at >= endsAt ? total : at > startDate ? scheduledDaysBetween(startDate, at, daysPerWeek) : 0
+export function computePace({
+  poolSize,
+  coveredCount,
+  startDate,
+  targetEndDate,
+  daysPerWeek,
+  today,
+  timeZone = DEFAULT_PLAN_TIME_ZONE,
+}: PaceInput): PaceResult {
+  const total = scheduledDaysBetween(startDate, finishDateEnds(targetEndDate), daysPerWeek)
+  // Study days owed once calendar day `day` has begun: day one of the plan owes a
+  // full day, and the day after the finish date owes the whole plan.
+  const elapsed = (day: Date) => {
+    if (day > targetEndDate) return total
+    if (day < startDate) return 0
+    return Math.min(total, Math.max(1, Math.round((daysBetween(startDate, day) + 1) * (daysPerWeek / 7))))
+  }
   // Multiply before dividing: dividing first mis-floors on floating point.
   const expectedAfter = (steps: number) => Math.min(poolSize, Math.floor((poolSize * steps) / total))
 
-  const expectedCount = expectedAfter(elapsed(today))
-  const expectedByYesterday = expectedAfter(elapsed(new Date(today.getTime() - MS_PER_DAY)))
+  const todayDate = calendarDay(today, timeZone)
+  const expectedCount = expectedAfter(elapsed(todayDate))
+  const expectedByYesterday = expectedAfter(elapsed(new Date(todayDate.getTime() - MS_PER_DAY)))
 
   let status: PaceStatus
   if (coveredCount >= expectedCount) {

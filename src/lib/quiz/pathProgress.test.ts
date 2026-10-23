@@ -119,4 +119,12 @@ describe('getPathProgress pace', () => {
       expect(r).toMatchObject({ poolSize: 655, coveredCount: 563, paceStatus: 'on-track', expectedCount: 550, expectedPercent: 84 })
     }
   })
+
+  it('uses the viewer\'s time zone to decide what day it is', async () => {
+    const justAfterEasternMidnight = new Date('2026-10-22T04:30:00Z')
+    const eastern = await getPathProgress(fakeProgressSupabase(), pathWith(19), justAfterEasternMidnight, 'America/New_York')
+    const pacific = await getPathProgress(fakeProgressSupabase(), pathWith(19), justAfterEasternMidnight, 'America/Los_Angeles')
+    expect(eastern.expectedCount).toBe(550) // already Oct 22 in the east
+    expect(pacific.expectedCount).toBe(535) // still the evening of Oct 21 in the west
+  })
 })

@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LinkButton } from '@/components/ui/link-button'
 import { getPathProgress, PACE_LABEL } from '@/lib/quiz/pathProgress'
+import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import { StartPathSessionButton } from '@/components/quiz/start-path-session-button'
 import type { QuizPath } from '@/types'
 
@@ -35,7 +36,7 @@ export default async function PathDetailPage({ params }: Props) {
   if (!path) redirect('/paths')
 
   const typedPath = path as QuizPath
-  const progress = await getPathProgress(supabase, typedPath)
+  const progress = await getPathProgress(supabase, typedPath, new Date(), await getRequestTimeZone())
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">

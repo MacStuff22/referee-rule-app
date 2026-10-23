@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { classifyMastery, type MasteryStatus } from '@/lib/quiz/mastery'
 import { getPathProgress } from '@/lib/quiz/pathProgress'
+import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import { CATEGORIES } from '@/lib/constants'
 import type { Profile, QuizPath } from '@/types'
 
@@ -17,6 +18,7 @@ interface MasteryRow {
 
 export default async function AdminAnalyticsPage() {
   const supabase = createAdminClient()
+  const timeZone = await getRequestTimeZone() // the admin's own zone, for everyone's plans
 
   const [{ data: users }, { data: masteryRows }, { data: paths }] = await Promise.all([
     supabase.from('profiles').select('*').order('full_name'),
@@ -52,7 +54,7 @@ export default async function AdminAnalyticsPage() {
 
       const userPaths = pathsByUser.get(u.id) ?? []
       const pathSummaries = await Promise.all(
-        userPaths.map(async (path) => ({ path, progress: await getPathProgress(supabase, path) }))
+        userPaths.map(async (path) => ({ path, progress: await getPathProgress(supabase, path, new Date(), timeZone) }))
       )
 
       return { profile: u, categoriesTouched: rows.length, counts, developing, pathSummaries }

@@ -8,7 +8,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { CATEGORIES } from '@/lib/constants'
-import { computeQuestionsPerDay, utcDateOnly } from '@/lib/quiz/paths'
+import { computeQuestionsPerDay, calendarDay } from '@/lib/quiz/paths'
+import { resolveTimeZone } from '@/lib/timeZone'
 import type { PathPoolFilter } from '@/types'
 
 type PoolType = PathPoolFilter['type']
@@ -90,7 +91,7 @@ export default function NewPathPage() {
 
   const questionsPerDayPreview =
     paceMode === 'end_date' && poolSize && poolSize > 0 && targetEndDate
-      ? computeQuestionsPerDay(poolSize, utcDateOnly(new Date()), new Date(targetEndDate), daysPerWeek)
+      ? computeQuestionsPerDay(poolSize, calendarDay(new Date(), resolveTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone)), new Date(targetEndDate), daysPerWeek)
       : null
 
   async function createPlan() {

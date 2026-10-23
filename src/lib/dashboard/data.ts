@@ -9,6 +9,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getPathProgress, type PathProgress } from '@/lib/quiz/pathProgress'
+import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import {
   biweeklyTrend,
   coverage,
@@ -106,9 +107,10 @@ export async function loadDashboard(supabase: SupabaseClient, userId: string, no
 
   const paths = (pathsResult.data ?? []) as QuizPath[]
   const plans: { path: QuizPath; progress: PathProgress }[] = []
+  const timeZone = await getRequestTimeZone()
   for (const path of paths.slice(0, 2)) {
     try {
-      plans.push({ path, progress: await getPathProgress(supabase, path) })
+      plans.push({ path, progress: await getPathProgress(supabase, path, new Date(), timeZone) })
     } catch {
       // A broken plan shouldn't take the whole dashboard down.
     }

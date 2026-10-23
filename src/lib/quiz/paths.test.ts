@@ -8,7 +8,8 @@ import {
   reservedCoverageSlots,
   computePace,
   finishDateEnds,
-  utcDateOnly,
+  calendarDay,
+  localDateString,
 } from '@/lib/quiz/paths'
 
 describe('scheduledDaysBetween', () => {
@@ -23,7 +24,7 @@ describe('scheduledDaysBetween', () => {
 })
 
 describe('remainingScheduledDays', () => {
-  // Afternoon UTC times: a new day counts from about midday UTC (see computePace).
+  // Times are afternoons in the default (Eastern) zone unless a zone is given.
   const end = new Date('2026-02-01')
 
   it('counts today and the finish date itself', () => {
@@ -31,7 +32,7 @@ describe('remainingScheduledDays', () => {
     expect(remainingScheduledDays(new Date('2026-02-01T18:00:00Z'), end, 7)).toBe(1)
   })
   it('reaches 0 once the finish date is over', () => {
-    expect(remainingScheduledDays(new Date('2026-02-02T00:00:00Z'), end, 7)).toBe(0)
+    expect(remainingScheduledDays(new Date('2026-02-02T18:00:00Z'), end, 7)).toBe(0)
     expect(remainingScheduledDays(new Date('2026-03-01T18:00:00Z'), end, 7)).toBe(0)
   })
   it('scales with days per week', () => {
@@ -42,10 +43,15 @@ describe('remainingScheduledDays', () => {
   it('hands everything to today when a once-a-week plan reaches its last day', () => {
     expect(remainingScheduledDays(new Date('2026-10-31T18:00:00Z'), new Date('2026-10-31'), 1)).toBe(0)
   })
-  it('switches day at the same midday point the pace line does', () => {
+  it('switches day at midnight in the given time zone', () => {
     const oct31 = new Date('2026-10-31')
-    expect(remainingScheduledDays(new Date('2026-10-23T08:00:00Z'), oct31, 5)).toBe(7)
-    expect(remainingScheduledDays(new Date('2026-10-23T13:00:00Z'), oct31, 5)).toBe(6)
+    // Eastern midnight on Oct 23 is 04:00 UTC (daylight time).
+    expect(remainingScheduledDays(new Date('2026-10-23T03:59:00Z'), oct31, 5, 'America/New_York')).toBe(7)
+    expect(remainingScheduledDays(new Date('2026-10-23T04:00:00Z'), oct31, 5, 'America/New_York')).toBe(6)
+  })
+  it('keeps the finish date open until midnight in the given time zone', () => {
+    expect(remainingScheduledDays(new Date('2026-02-02T04:59:00Z'), end, 7, 'America/New_York')).toBe(1) // 11:59 pm on Feb 1
+    expect(remainingScheduledDays(new Date('2026-02-02T05:00:00Z'), end, 7, 'America/New_York')).toBe(0)
   })
 })
 
@@ -109,7 +115,8 @@ describe('computePace', () => {
     daysPerWeek: 5,
     today: new Date('2026-10-22T18:00:00Z'),
   }
-  const pace = (covered: number, over: Partial<typeof incident> = {}) =>
+  type PaceOverrides = Partial<Omit<Parameters<typeof computePace>[0], 'coveredCount'>>
+  const pace = (covered: number, over: PaceOverrides = {}) =>
     computePace({ ...incident, ...over, coveredCount: covered })
 
   it('puts the marker on a straight line to the deadline, not at 100% (the Oct 22 incident)', () => {
@@ -139,9 +146,28 @@ describe('computePace', () => {
     expect(r.status).toBe('due-today')
   })
 
-  it('counts a study day as owed from midday UTC (existing day rounding)', () => {
-    expect(pace(0, { today: new Date('2026-10-22T11:00:00Z') }).expectedCount).toBe(535)
-    expect(pace(0, { today: new Date('2026-10-22T13:00:00Z') }).expectedCount).toBe(550)
+  it('starts a new study day at midnight in the given time zone, not midday', () => {
+    const at = (iso: string, timeZone: string) => pace(0, { today: new Date(iso), timeZone }).expectedCount
+    // Eastern (daylight time, UTC-4): midnight Oct 22 is 04:00Z.
+    expect(at('2026-10-22T03:59:59Z', 'America/New_York')).toBe(535)
+    expect(at('2026-10-22T04:00:00Z', 'America/New_York')).toBe(550)
+    // Pacific (UTC-7): 07:00Z.
+    expect(at('2026-10-22T06:59:59Z', 'America/Los_Angeles')).toBe(535)
+    expect(at('2026-10-22T07:00:00Z', 'America/Los_Angeles')).toBe(550)
+    // UTC itself.
+    expect(at('2026-10-21T23:59:59Z', 'UTC')).toBe(535)
+    expect(at('2026-10-22T00:00:00Z', 'UTC')).toBe(550)
+  })
+
+  it('shows the early-morning and late-evening hours as the right day (no midday lag)', () => {
+    expect(pace(0, { today: new Date('2026-10-22T09:00:00Z'), timeZone: 'America/New_York' }).expectedCount).toBe(550) // 5 am Oct 22
+    expect(pace(0, { today: new Date('2026-10-23T02:00:00Z'), timeZone: 'America/New_York' }).expectedCount).toBe(550) // 10 pm Oct 22
+  })
+
+  it('follows the viewer: the same instant is a different day in a different zone', () => {
+    const instant = new Date('2026-10-22T03:00:00Z') // 11 pm Oct 21 Eastern, 8 pm Oct 21 Pacific, Oct 22 in Tokyo
+    expect(pace(0, { today: instant, timeZone: 'America/New_York' }).expectedCount).toBe(535)
+    expect(pace(0, { today: instant, timeZone: 'Asia/Tokyo' }).expectedCount).toBe(550)
   })
 
   it('expects the whole pool on the finish date, with that last day still owed', () => {
@@ -238,9 +264,11 @@ describe('a plan counts both its start date and its finish date', () => {
     expect(line(10, 3)).toBe(100) // what you have done never moves the line
   })
 
-  it('does not depend on the time of day the plan was created, once the start is date-only', () => {
-    expect(computeQuestionsPerDay(100, utcDateOnly(new Date('2026-10-01T23:59:00Z')), end, 7)).toBe(10)
-    expect(computeQuestionsPerDay(100, utcDateOnly(new Date('2026-10-01T00:01:00Z')), end, 7)).toBe(10)
+  it('does not depend on the hour a plan is created, once the start is the local calendar date', () => {
+    for (const iso of ['2026-10-01T04:01:00Z', '2026-10-01T18:00:00Z', '2026-10-02T03:59:00Z']) {
+      // All of these are Oct 1 in Eastern time, including 11:59 pm.
+      expect(computeQuestionsPerDay(100, calendarDay(new Date(iso), 'America/New_York'), end, 7)).toBe(10)
+    }
   })
 
   it('finishes on Oct 10 when a pace of 10 a day is chosen instead of a date', () => {
@@ -260,8 +288,17 @@ describe('a plan counts both its start date and its finish date', () => {
     }
   })
 
-  it('finishDateEnds is the start of the day after, and utcDateOnly drops the time of day', () => {
+  it('finishDateEnds is the start of the day after the finish date', () => {
     expect(finishDateEnds(end).toISOString()).toBe('2026-10-11T00:00:00.000Z')
-    expect(utcDateOnly(new Date('2026-10-01T18:30:00Z')).toISOString()).toBe('2026-10-01T00:00:00.000Z')
+  })
+
+  it('localDateString and calendarDay give the wall-clock date, including across a daylight-saving change', () => {
+    expect(localDateString(new Date('2026-10-22T03:59:59Z'), 'America/New_York')).toBe('2026-10-21')
+    expect(localDateString(new Date('2026-10-22T04:00:00Z'), 'America/New_York')).toBe('2026-10-22')
+    expect(calendarDay(new Date('2026-10-01T18:30:00Z'), 'UTC').toISOString()).toBe('2026-10-01T00:00:00.000Z')
+    // Clocks go back on Nov 1 2026, so that Eastern day is 25 hours long.
+    expect(localDateString(new Date('2026-11-01T04:30:00Z'), 'America/New_York')).toBe('2026-11-01')
+    expect(localDateString(new Date('2026-11-02T04:59:00Z'), 'America/New_York')).toBe('2026-11-01')
+    expect(localDateString(new Date('2026-11-02T05:00:00Z'), 'America/New_York')).toBe('2026-11-02')
   })
 })

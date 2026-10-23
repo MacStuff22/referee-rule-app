@@ -10,6 +10,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { computePace, type PaceStatus } from '@/lib/quiz/paths'
 import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
+import { DEFAULT_PLAN_TIME_ZONE } from '@/lib/timeZone'
 import type { QuizPath } from '@/types'
 
 export type { PaceStatus }
@@ -73,7 +74,12 @@ export async function getCoveredQuestionIds(
   return new Set(answers.map((a) => a.questionId))
 }
 
-export async function getPathProgress(supabase: SupabaseClient, path: QuizPath, now: Date = new Date()): Promise<PathProgress> {
+export async function getPathProgress(
+  supabase: SupabaseClient,
+  path: QuizPath,
+  now: Date = new Date(),
+  timeZone: string = DEFAULT_PLAN_TIME_ZONE
+): Promise<PathProgress> {
   const poolIds: string[] = path.pool_question_ids
 
   const liveQuestions = await fetchLivePoolQuestions(supabase, poolIds)
@@ -92,6 +98,7 @@ export async function getPathProgress(supabase: SupabaseClient, path: QuizPath, 
     targetEndDate: new Date(path.target_end_date),
     daysPerWeek: path.days_per_week,
     today: now,
+    timeZone,
   })
 
   return { poolSize, coveredCount, percent, paceStatus, expectedCount, expectedPercent }
