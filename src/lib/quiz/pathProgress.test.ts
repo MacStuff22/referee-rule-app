@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { getPathAnswers, getCoveredQuestionIds } from '@/lib/quiz/pathProgress'
+import { getPathAnswers, getCoveredQuestionIds, getPathProgress } from '@/lib/quiz/pathProgress'
+import type { QuizPath } from '@/types'
 
 function fakeSupabase(rows: { question_id: string; answered_at: string }[], error: { message: string } | null = null) {
   return {
@@ -57,5 +58,65 @@ describe('getCoveredQuestionIds', () => {
     // but-unanswered id simply never appears here.
     const supabase = fakeSupabase([{ question_id: 'q1', answered_at: '2026-01-01T00:00:00Z' }])
     expect(await getCoveredQuestionIds(supabase, 'p1', 'u1')).toEqual(new Set(['q1']))
+  })
+})
+
+// Regression for the Oct 22 pace bug: the marker used to be (study days elapsed) x
+// (the plan's CURRENT questions_per_day), a number reflowPace rewrites on every daily
+// quiz — so it pinned at 100% nine days before the deadline.
+describe('getPathProgress pace', () => {
+  const poolIds = Array.from({ length: 655 }, (_, i) => `q${i}`)
+  const answeredIds = poolIds.slice(0, 563)
+
+  function fakeProgressSupabase() {
+    return {
+      from(table: string) {
+        if (table === 'questions') {
+          // fetchLivePoolQuestions looks the pool up 200 ids at a time.
+          let ids: string[] = []
+          const builder = {
+            eq: () => builder,
+            in: (_column: string, chunk: string[]) => {
+              ids = chunk
+              return builder
+            },
+            then: (resolve: (v: unknown) => void) =>
+              resolve({ data: ids.map((id) => ({ id, category: 'c', situation_id: 's' })), error: null }),
+          }
+          return { select: () => builder }
+        }
+        if (table === 'quiz_answers') {
+          const builder = {
+            eq: () => builder,
+            order: () =>
+              Promise.resolve({
+                data: answeredIds.map((id, i) => ({ question_id: id, answered_at: `2026-10-${String((i % 20) + 1).padStart(2, '0')}T12:00:00Z` })),
+                error: null,
+              }),
+          }
+          return { select: () => builder }
+        }
+        throw new Error(`unexpected table ${table}`)
+      },
+    } as unknown as import('@supabase/supabase-js').SupabaseClient
+  }
+
+  const pathWith = (questionsPerDay: number) =>
+    ({
+      id: 'p1',
+      user_id: 'u1',
+      pool_question_ids: poolIds,
+      start_date: '2026-09-01',
+      target_end_date: '2026-10-31',
+      days_per_week: 5,
+      questions_per_day: questionsPerDay,
+    }) as unknown as QuizPath
+
+  it('does not depend on the plan\'s current daily count', async () => {
+    const now = new Date('2026-10-22T18:00:00Z')
+    const results = await Promise.all([4, 19, 400].map((q) => getPathProgress(fakeProgressSupabase(), pathWith(q), now)))
+    for (const r of results) {
+      expect(r).toMatchObject({ poolSize: 655, coveredCount: 563, paceStatus: 'on-track', expectedCount: 563, expectedPercent: 86 })
+    }
   })
 })

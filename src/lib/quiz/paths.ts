@@ -11,6 +11,11 @@
 // reservedCoverageSlots is what guarantees every question in a path's
 // pool gets covered by the deadline even though most days are otherwise
 // weakness-weighted (see the paths/[pathId]/start route).
+// computePace answers "where should you be by now?" as a straight line
+// from the start to the deadline. It deliberately ignores the stored
+// questions_per_day: reflowPace rewrites that on every daily quiz, so
+// multiplying it by the days already elapsed rewrites history (it pinned
+// the marker at 100% nine days before a deadline).
 // ============================================================
 
 export const PATH_CONFIG = {
@@ -85,4 +90,61 @@ export function reservedCoverageSlots(
   if (uncoveredCount <= 0) return 0
   if (remainingScheduledDays <= 0) return Math.min(uncoveredCount, todaysTotalSlots)
   return Math.min(todaysTotalSlots, Math.ceil(uncoveredCount / remainingScheduledDays))
+}
+
+export type PaceStatus = 'ahead' | 'on-track' | 'due-today' | 'behind'
+
+export interface PaceInput {
+  poolSize: number
+  coveredCount: number
+  startDate: Date
+  targetEndDate: Date
+  daysPerWeek: number
+  today: Date
+}
+
+export interface PaceResult {
+  /** Questions that should be covered by now on an even pace from the start to the deadline. */
+  expectedCount: number
+  /** What should have been covered through yesterday — falling short of this is a genuine miss. */
+  expectedByYesterday: number
+  expectedPercent: number
+  status: PaceStatus
+}
+
+/**
+ * Straight-line pace: the pool spread evenly over the plan's scheduled study
+ * days. Counting is in whole scheduled days (the same unit reflowPace and
+ * computeQuestionsPerDay use), floored, so being a fraction of a question
+ * short of the line never reads as behind.
+ *
+ * The gap between expectedByYesterday and expectedCount is just today's
+ * still-open share, so it reads "due-today" rather than "behind" until a full
+ * day has actually been missed.
+ */
+export function computePace({ poolSize, coveredCount, startDate, targetEndDate, daysPerWeek, today }: PaceInput): PaceResult {
+  const total = scheduledDaysBetween(startDate, targetEndDate, daysPerWeek)
+  const elapsed = (at: Date) =>
+    at >= targetEndDate ? total : at > startDate ? scheduledDaysBetween(startDate, at, daysPerWeek) : 0
+  // Multiply before dividing: dividing first mis-floors on floating point.
+  const expectedAfter = (steps: number) => Math.min(poolSize, Math.floor((poolSize * steps) / total))
+
+  const expectedCount = expectedAfter(elapsed(today))
+  const expectedByYesterday = expectedAfter(elapsed(new Date(today.getTime() - MS_PER_DAY)))
+
+  let status: PaceStatus
+  if (coveredCount >= expectedCount) {
+    status = coveredCount > expectedCount * 1.1 ? 'ahead' : 'on-track'
+  } else if (coveredCount >= expectedByYesterday) {
+    status = 'due-today'
+  } else {
+    status = 'behind'
+  }
+
+  return {
+    expectedCount,
+    expectedByYesterday,
+    expectedPercent: poolSize > 0 ? Math.round((expectedCount / poolSize) * 100) : 0,
+    status,
+  }
 }

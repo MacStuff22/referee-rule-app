@@ -8,18 +8,18 @@
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { scheduledDaysBetween } from '@/lib/quiz/paths'
+import { computePace, type PaceStatus } from '@/lib/quiz/paths'
 import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
 import type { QuizPath } from '@/types'
 
-export type PaceStatus = 'ahead' | 'on-track' | 'due-today' | 'behind'
+export type { PaceStatus }
 
 export interface PathProgress {
   poolSize: number
   coveredCount: number
   percent: number
   paceStatus: PaceStatus
-  /** Questions you'd have covered by today if you were exactly on pace — drives the pace marker on the progress bar. */
+  /** Questions you'd have covered by today on an even pace from the start to the deadline — drives the pace marker on the progress bar. */
   expectedCount: number
   expectedPercent: number
 }
@@ -29,12 +29,6 @@ export const PACE_LABEL: Record<PaceStatus, { label: string; variant: 'default' 
   'on-track': { label: 'On track', variant: 'secondary' },
   'due-today': { label: "On track — complete today's questions", variant: 'secondary' },
   behind: { label: 'Behind pace', variant: 'destructive' },
-}
-
-function oneDayBefore(date: Date): Date {
-  const d = new Date(date)
-  d.setDate(d.getDate() - 1)
-  return d
 }
 
 export interface PathAnswerRecord {
@@ -79,7 +73,7 @@ export async function getCoveredQuestionIds(
   return new Set(answers.map((a) => a.questionId))
 }
 
-export async function getPathProgress(supabase: SupabaseClient, path: QuizPath): Promise<PathProgress> {
+export async function getPathProgress(supabase: SupabaseClient, path: QuizPath, now: Date = new Date()): Promise<PathProgress> {
   const poolIds: string[] = path.pool_question_ids
 
   const liveQuestions = await fetchLivePoolQuestions(supabase, poolIds)
@@ -91,31 +85,14 @@ export async function getPathProgress(supabase: SupabaseClient, path: QuizPath):
   const poolSize = livePoolIds.length
   const percent = poolSize > 0 ? Math.round((coveredCount / poolSize) * 100) : 0
 
-  const today = new Date()
-  const start = new Date(path.start_date)
-  const end = new Date(path.target_end_date)
-  const elapsedCap = today < end ? today : end
-  const scheduledSoFar = elapsedCap > start ? scheduledDaysBetween(start, elapsedCap, path.days_per_week) : 0
-  const expectedByNow = scheduledSoFar * path.questions_per_day
-
-  // Everything scheduled through yesterday — falling short of *this* is a
-  // genuine miss. The gap between it and expectedByNow is just today's still-
-  // open quota, which shouldn't read as "behind" before the day is even done.
-  const yesterday = oneDayBefore(elapsedCap)
-  const scheduledByYesterday = yesterday > start ? scheduledDaysBetween(start, yesterday, path.days_per_week) : 0
-  const expectedByYesterday = scheduledByYesterday * path.questions_per_day
-
-  let paceStatus: PaceStatus
-  if (coveredCount >= expectedByNow) {
-    paceStatus = coveredCount > expectedByNow * 1.1 ? 'ahead' : 'on-track'
-  } else if (coveredCount >= expectedByYesterday) {
-    paceStatus = 'due-today'
-  } else {
-    paceStatus = 'behind'
-  }
-
-  const expectedCount = Math.min(expectedByNow, poolSize)
-  const expectedPercent = poolSize > 0 ? Math.round((expectedCount / poolSize) * 100) : 0
+  const { expectedCount, expectedPercent, status: paceStatus } = computePace({
+    poolSize,
+    coveredCount,
+    startDate: new Date(path.start_date),
+    targetEndDate: new Date(path.target_end_date),
+    daysPerWeek: path.days_per_week,
+    today: now,
+  })
 
   return { poolSize, coveredCount, percent, paceStatus, expectedCount, expectedPercent }
 }

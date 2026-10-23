@@ -73,7 +73,7 @@ export default async function PathDetailPage({ params }: Props) {
             {typedPath.status === 'active' && (
               <p className="text-xs text-gray-400 mt-1 flex items-center gap-1.5">
                 <span className="inline-block w-2 h-2 rounded-full bg-amber-500 shrink-0" aria-hidden="true" />
-                Amber line marks where you&apos;d be on pace — {progress.expectedCount} of {progress.poolSize} by today
+                Amber line marks an even pace to your target finish — {progress.expectedCount} of {progress.poolSize} by today
               </p>
             )}
           </div>
