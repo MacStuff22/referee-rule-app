@@ -116,7 +116,7 @@ describe('getPathProgress pace', () => {
     const now = new Date('2026-10-22T18:00:00Z')
     const results = await Promise.all([4, 19, 400].map((q) => getPathProgress(fakeProgressSupabase(), pathWith(q), now)))
     for (const r of results) {
-      expect(r).toMatchObject({ poolSize: 655, coveredCount: 563, paceStatus: 'on-track', expectedCount: 563, expectedPercent: 86 })
+      expect(r).toMatchObject({ poolSize: 655, coveredCount: 563, paceStatus: 'on-track', expectedCount: 550, expectedPercent: 84 })
     }
   })
 })

@@ -7,6 +7,8 @@ import {
   reflowPace,
   reservedCoverageSlots,
   computePace,
+  finishDateEnds,
+  utcDateOnly,
 } from '@/lib/quiz/paths'
 
 describe('scheduledDaysBetween', () => {
@@ -21,12 +23,29 @@ describe('scheduledDaysBetween', () => {
 })
 
 describe('remainingScheduledDays', () => {
-  it('reaches 0 once today is at or past the deadline', () => {
-    expect(remainingScheduledDays(new Date('2026-03-01'), new Date('2026-02-01'), 7)).toBe(0)
-    expect(remainingScheduledDays(new Date('2026-02-01'), new Date('2026-02-01'), 7)).toBe(0)
+  // Afternoon UTC times: a new day counts from about midday UTC (see computePace).
+  const end = new Date('2026-02-01')
+
+  it('counts today and the finish date itself', () => {
+    expect(remainingScheduledDays(new Date('2026-01-25T18:00:00Z'), end, 7)).toBe(8)
+    expect(remainingScheduledDays(new Date('2026-02-01T18:00:00Z'), end, 7)).toBe(1)
   })
-  it('counts down as the deadline approaches', () => {
-    expect(remainingScheduledDays(new Date('2026-01-25'), new Date('2026-02-01'), 7)).toBe(7)
+  it('reaches 0 once the finish date is over', () => {
+    expect(remainingScheduledDays(new Date('2026-02-02T00:00:00Z'), end, 7)).toBe(0)
+    expect(remainingScheduledDays(new Date('2026-03-01T18:00:00Z'), end, 7)).toBe(0)
+  })
+  it('scales with days per week', () => {
+    const oct31 = new Date('2026-10-31')
+    expect(remainingScheduledDays(new Date('2026-10-22T18:00:00Z'), oct31, 5)).toBe(7) // 10 days x 5/7
+    expect(remainingScheduledDays(new Date('2026-10-22T18:00:00Z'), oct31, 1)).toBe(1)
+  })
+  it('hands everything to today when a once-a-week plan reaches its last day', () => {
+    expect(remainingScheduledDays(new Date('2026-10-31T18:00:00Z'), new Date('2026-10-31'), 1)).toBe(0)
+  })
+  it('switches day at the same midday point the pace line does', () => {
+    const oct31 = new Date('2026-10-31')
+    expect(remainingScheduledDays(new Date('2026-10-23T08:00:00Z'), oct31, 5)).toBe(7)
+    expect(remainingScheduledDays(new Date('2026-10-23T13:00:00Z'), oct31, 5)).toBe(6)
   })
 })
 
@@ -81,7 +100,8 @@ describe('reservedCoverageSlots', () => {
 })
 
 describe('computePace', () => {
-  // The real incident: a 655-question plan, Sep 1 -> Oct 31, 5 days a week, on Oct 22.
+  // The real plan from the Oct 22 incident: 655 questions, Sep 1 -> Oct 31 (both
+  // dates are study days), 5 days a week, checked on Oct 22.
   const incident = {
     poolSize: 655,
     startDate: new Date('2026-09-01'),
@@ -94,50 +114,55 @@ describe('computePace', () => {
 
   it('puts the marker on a straight line to the deadline, not at 100% (the Oct 22 incident)', () => {
     const r = pace(563)
-    expect(r.expectedCount).toBe(563)
-    expect(r.expectedByYesterday).toBe(548)
-    expect(r.expectedPercent).toBe(86)
+    expect(r.expectedCount).toBe(550)
+    expect(r.expectedByYesterday).toBe(535)
+    expect(r.expectedPercent).toBe(84)
   })
 
   it('reads on-track on the line, due-today a little under it, and behind only after a missed day', () => {
-    expect(pace(563).status).toBe('on-track')
-    expect(pace(562).status).toBe('due-today')
-    expect(pace(548).status).toBe('due-today')
-    expect(pace(547).status).toBe('behind')
-    expect(pace(540).status).toBe('behind')
+    expect(pace(550).status).toBe('on-track')
+    expect(pace(549).status).toBe('due-today')
+    expect(pace(535).status).toBe('due-today')
+    expect(pace(534).status).toBe('behind')
+    expect(pace(530).status).toBe('behind')
   })
 
   it('reads ahead only when more than 10% past the line', () => {
-    expect(pace(619).status).toBe('on-track')
-    expect(pace(620).status).toBe('ahead')
+    expect(pace(605).status).toBe('on-track')
+    expect(pace(606).status).toBe('ahead')
   })
 
   it('on the first day, owes one day of questions but is not behind', () => {
     const r = pace(0, { today: new Date('2026-09-01T15:00:00Z') })
-    expect(r.expectedCount).toBe(15)
+    expect(r.expectedCount).toBe(14)
     expect(r.expectedByYesterday).toBe(0)
     expect(r.status).toBe('due-today')
   })
 
   it('counts a study day as owed from midday UTC (existing day rounding)', () => {
-    expect(pace(0, { today: new Date('2026-10-22T11:00:00Z') }).expectedCount).toBe(548)
-    expect(pace(0, { today: new Date('2026-10-22T13:00:00Z') }).expectedCount).toBe(563)
+    expect(pace(0, { today: new Date('2026-10-22T11:00:00Z') }).expectedCount).toBe(535)
+    expect(pace(0, { today: new Date('2026-10-22T13:00:00Z') }).expectedCount).toBe(550)
   })
 
-  it('expects the whole pool at the deadline, with the last day still owed', () => {
-    const atDeadline = { today: new Date('2026-10-31') }
-    expect(pace(655, atDeadline)).toMatchObject({ expectedCount: 655, expectedPercent: 100, status: 'on-track' })
-    expect(pace(645, atDeadline).status).toBe('due-today')
-    expect(pace(600, atDeadline).status).toBe('behind')
+  it('expects the whole pool on the finish date, with that last day still owed', () => {
+    const onFinishDate = { today: new Date('2026-10-31T18:00:00Z') }
+    expect(pace(655, onFinishDate)).toMatchObject({ expectedCount: 655, expectedPercent: 100, status: 'on-track' })
+    expect(pace(645, onFinishDate).status).toBe('due-today')
+    expect(pace(600, onFinishDate).status).toBe('behind')
   })
 
-  it('reads behind once the deadline has passed with questions left', () => {
-    expect(pace(645, { today: new Date('2026-11-01T12:00:00Z') }).status).toBe('behind')
+  it('does not expect the whole pool the day before the finish date', () => {
+    expect(pace(0, { today: new Date('2026-10-30T18:00:00Z') }).expectedCount).toBe(640)
   })
 
-  it('expects the whole pool from a plan whose end is not after its start', () => {
-    const r = pace(0, { targetEndDate: incident.startDate, today: new Date('2026-09-02') })
-    expect(r.expectedCount).toBe(655)
+  it('reads behind once the finish date is over and questions are left', () => {
+    expect(pace(645, { today: new Date('2026-11-02T12:00:00Z') }).status).toBe('behind')
+  })
+
+  it('treats a plan whose finish date is its start date as a one-day plan', () => {
+    const oneDay = { targetEndDate: incident.startDate }
+    expect(pace(0, { ...oneDay, today: new Date('2026-09-01T18:00:00Z') }).expectedCount).toBe(655)
+    expect(pace(0, { ...oneDay, today: new Date('2026-09-02') }).expectedCount).toBe(655)
   })
 
   it('multiplies before dividing, so exact steps are not mis-floored', () => {
@@ -146,7 +171,7 @@ describe('computePace', () => {
       poolSize: 100,
       coveredCount: 0,
       startDate: start,
-      targetEndDate: new Date(start.getTime() + 100 * 86_400_000),
+      targetEndDate: new Date(start.getTime() + 99 * 86_400_000), // 100 study days, both ends included
       daysPerWeek: 7,
       today: new Date(start.getTime() + 29 * 86_400_000),
     })
@@ -184,9 +209,59 @@ describe('computePace', () => {
   })
 
   it('re-anchors the line when the deadline is extended (accepted: the original deadline is not stored)', () => {
-    expect(pace(563).expectedCount).toBe(563)
+    expect(pace(563).expectedCount).toBe(550)
     const extended = pace(563, { targetEndDate: new Date('2026-11-14') })
-    expect(extended.expectedCount).toBe(457)
+    expect(extended.expectedCount).toBe(448)
     expect(extended.status).toBe('ahead')
+  })
+})
+
+// The finish date is a study day: start Oct 1, finish Oct 10, 100 questions, every
+// day is 10 study days and 10 questions a day, however many are actually done.
+describe('a plan counts both its start date and its finish date', () => {
+  const start = new Date('2026-10-01')
+  const end = new Date('2026-10-10')
+
+  it('works out to 10 a day, on the creation screen and in the line', () => {
+    expect(computeQuestionsPerDay(100, start, end, 7)).toBe(10)
+    const line = (day: number, covered = 0) =>
+      computePace({
+        poolSize: 100,
+        coveredCount: covered,
+        startDate: start,
+        targetEndDate: end,
+        daysPerWeek: 7,
+        today: new Date(`2026-10-${String(day).padStart(2, '0')}T18:00:00Z`),
+      }).expectedCount
+    expect(Array.from({ length: 10 }, (_, i) => line(i + 1))).toEqual([10, 20, 30, 40, 50, 60, 70, 80, 90, 100])
+    expect(line(10, 100)).toBe(100)
+    expect(line(10, 3)).toBe(100) // what you have done never moves the line
+  })
+
+  it('does not depend on the time of day the plan was created, once the start is date-only', () => {
+    expect(computeQuestionsPerDay(100, utcDateOnly(new Date('2026-10-01T23:59:00Z')), end, 7)).toBe(10)
+    expect(computeQuestionsPerDay(100, utcDateOnly(new Date('2026-10-01T00:01:00Z')), end, 7)).toBe(10)
+  })
+
+  it('finishes on Oct 10 when a pace of 10 a day is chosen instead of a date', () => {
+    expect(computeTargetEndDate(100, 10, start, 7).toISOString().slice(0, 10)).toBe('2026-10-10')
+    expect(computeTargetEndDate(100, 10, start, 5).toISOString().slice(0, 10)).toBe('2026-10-14') // 14 days at 5/week
+    expect(computeTargetEndDate(1, 1, start, 7).toISOString().slice(0, 10)).toBe('2026-10-01') // one question, one day
+  })
+
+  it('round-trips: the finish date for a daily count never needs more than that daily count', () => {
+    for (const daysPerWeek of [1, 2, 3, 4, 5, 6, 7]) {
+      for (const pool of [1, 7, 50, 100, 655, 1000]) {
+        for (const perDay of [1, 3, 10, 19, 40]) {
+          const finish = computeTargetEndDate(pool, perDay, start, daysPerWeek)
+          expect(computeQuestionsPerDay(pool, start, finish, daysPerWeek)).toBeLessThanOrEqual(perDay)
+        }
+      }
+    }
+  })
+
+  it('finishDateEnds is the start of the day after, and utcDateOnly drops the time of day', () => {
+    expect(finishDateEnds(end).toISOString()).toBe('2026-10-11T00:00:00.000Z')
+    expect(utcDateOnly(new Date('2026-10-01T18:30:00Z')).toISOString()).toBe('2026-10-01T00:00:00.000Z')
   })
 })

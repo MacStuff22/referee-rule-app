@@ -11,6 +11,10 @@
 // reservedCoverageSlots is what guarantees every question in a path's
 // pool gets covered by the deadline even though most days are otherwise
 // weakness-weighted (see the paths/[pathId]/start route).
+// A plan runs from the start of its start date to the END of its finish
+// date: both dates are study days (Oct 1 to Oct 10 is 10 days, so 100
+// questions is 10 a day). Every helper below measures the span that way, so
+// the creation screen, the daily count, reflow and the pace line always agree.
 // computePace answers "where should you be by now?" as a straight line
 // from the start to the deadline. It deliberately ignores the stored
 // questions_per_day: reflowPace rewrites that on every daily quiz, so
@@ -28,19 +32,32 @@ function daysBetween(a: Date, b: Date): number {
   return Math.round((b.getTime() - a.getTime()) / MS_PER_DAY)
 }
 
+/** The instant a plan's finish date is over: the start of the day after it. */
+export function finishDateEnds(targetEndDate: Date): Date {
+  return new Date(targetEndDate.getTime() + MS_PER_DAY)
+}
+
+/** The UTC calendar day of `date` at midnight — the same date the API stores as a plan's start_date. */
+export function utcDateOnly(date: Date): Date {
+  return new Date(date.toISOString().slice(0, 10))
+}
+
 export function scheduledDaysBetween(startDate: Date, endDate: Date, daysPerWeek: number): number {
   const totalDays = Math.max(1, daysBetween(startDate, endDate))
   return Math.max(1, Math.round(totalDays * (daysPerWeek / 7)))
 }
 
 /**
- * Like scheduledDaysBetween, but allowed to reach 0 (not floored to 1) once
- * `today` has reached or passed the deadline — that's what tells reflowPace
- * and reservedCoverageSlots to cram everything remaining into today rather
- * than dividing by a phantom day.
+ * Study days left, counting today and the finish date itself. Allowed to reach
+ * 0 (not floored to 1) once the finish date is over — that's what tells
+ * reflowPace and reservedCoverageSlots to cram everything remaining into today
+ * rather than dividing by a phantom day.
  */
 export function remainingScheduledDays(today: Date, targetEndDate: Date, daysPerWeek: number): number {
-  const daysLeft = Math.max(0, daysBetween(today, targetEndDate))
+  const endsAt = finishDateEnds(targetEndDate)
+  if (today >= endsAt) return 0
+  // Whole days after today (counted the same way computePace counts elapsed days), plus today.
+  const daysLeft = daysBetween(today, endsAt) + 1
   return Math.round(daysLeft * (daysPerWeek / 7))
 }
 
@@ -50,10 +67,11 @@ export function computeQuestionsPerDay(
   targetEndDate: Date,
   daysPerWeek: number
 ): number {
-  const scheduledDays = scheduledDaysBetween(startDate, targetEndDate, daysPerWeek)
+  const scheduledDays = scheduledDaysBetween(startDate, finishDateEnds(targetEndDate), daysPerWeek)
   return Math.max(1, Math.ceil(poolSize / scheduledDays))
 }
 
+/** The LAST study date for a plan at this pace — the start date counts as day one. */
 export function computeTargetEndDate(
   poolSize: number,
   questionsPerDay: number,
@@ -62,7 +80,7 @@ export function computeTargetEndDate(
 ): Date {
   const scheduledDaysNeeded = Math.ceil(poolSize / Math.max(1, questionsPerDay))
   const totalDays = Math.ceil(scheduledDaysNeeded * (7 / daysPerWeek))
-  return new Date(startDate.getTime() + totalDays * MS_PER_DAY)
+  return new Date(startDate.getTime() + (totalDays - 1) * MS_PER_DAY)
 }
 
 export interface ReflowResult {
@@ -123,9 +141,10 @@ export interface PaceResult {
  * day has actually been missed.
  */
 export function computePace({ poolSize, coveredCount, startDate, targetEndDate, daysPerWeek, today }: PaceInput): PaceResult {
-  const total = scheduledDaysBetween(startDate, targetEndDate, daysPerWeek)
+  const endsAt = finishDateEnds(targetEndDate)
+  const total = scheduledDaysBetween(startDate, endsAt, daysPerWeek)
   const elapsed = (at: Date) =>
-    at >= targetEndDate ? total : at > startDate ? scheduledDaysBetween(startDate, at, daysPerWeek) : 0
+    at >= endsAt ? total : at > startDate ? scheduledDaysBetween(startDate, at, daysPerWeek) : 0
   // Multiply before dividing: dividing first mis-floors on floating point.
   const expectedAfter = (steps: number) => Math.min(poolSize, Math.floor((poolSize * steps) / total))
 

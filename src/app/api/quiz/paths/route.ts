@@ -32,8 +32,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 400 })
   }
 
-  const startDate = new Date()
-  const startDateIso = startDate.toISOString().slice(0, 10)
+  // The pace math uses the same date-only start that is stored, so the daily
+  // count never depends on what time of day the plan was created.
+  const startDateIso = new Date().toISOString().slice(0, 10)
+  const startDate = new Date(startDateIso)
 
   let questionsPerDay: number
   let targetEndDate: string
