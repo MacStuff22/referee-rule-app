@@ -8,7 +8,7 @@
 // ============================================================
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { computePace, type PaceStatus } from '@/lib/quiz/paths'
+import { computePace, planTodaysQuiz, remainingScheduledDays, type PaceStatus } from '@/lib/quiz/paths'
 import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
 import { DEFAULT_PLAN_TIME_ZONE } from '@/lib/timeZone'
 import type { QuizPath } from '@/types'
@@ -23,6 +23,8 @@ export interface PathProgress {
   /** Questions you'd have covered by today on an even pace from the start to the deadline — drives the pace marker on the progress bar. */
   expectedCount: number
   expectedPercent: number
+  /** How many questions a quiz started right now will have — the same calculation the quiz builder uses. */
+  todaysQuestions: number
 }
 
 export const PACE_LABEL: Record<PaceStatus, { label: string; variant: 'default' | 'secondary' | 'destructive' }> = {
@@ -101,5 +103,12 @@ export async function getPathProgress(
     timeZone,
   })
 
-  return { poolSize, coveredCount, percent, paceStatus, expectedCount, expectedPercent }
+  const { questionCount: todaysQuestions } = planTodaysQuiz({
+    uncoveredCount: poolSize - coveredCount,
+    livePoolSize: poolSize,
+    remainingDays: remainingScheduledDays(now, new Date(path.target_end_date), path.days_per_week, timeZone),
+    savedQuestionsPerDay: path.questions_per_day,
+  })
+
+  return { poolSize, coveredCount, percent, paceStatus, expectedCount, expectedPercent, todaysQuestions }
 }

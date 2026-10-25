@@ -38,7 +38,7 @@ export function PlanPace({ plans }: { plans: { path: QuizPath; progress: PathPro
                 <span>{progress.percent}% covered ({progress.coveredCount} of {progress.poolSize})</span>
                 <span>
                   Finish by {new Date(`${path.target_end_date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ·{' '}
-                  {path.questions_per_day} questions a day
+                  {progress.todaysQuestions} question{progress.todaysQuestions === 1 ? '' : 's'} a day
                 </span>
               </div>
             </div>

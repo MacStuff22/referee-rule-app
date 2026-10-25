@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 
-export function StartPathSessionButton({ pathId, questionsPerDay }: { pathId: string; questionsPerDay: number }) {
+export function StartPathSessionButton({ pathId, label, loadingLabel }: { pathId: string; label: string; loadingLabel: string }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
@@ -37,7 +37,7 @@ export function StartPathSessionButton({ pathId, questionsPerDay }: { pathId: st
   return (
     <div className="space-y-2">
       <Button onClick={start} disabled={loading} size="lg" className="w-full">
-        {loading ? 'Building today\'s questions…' : `Do Today's ${questionsPerDay} Questions`}
+        {loading ? loadingLabel : label}
       </Button>
       {error && <p className="text-sm text-red-600">{error}</p>}
     </div>

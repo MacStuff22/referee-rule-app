@@ -8,6 +8,7 @@ import { LinkButton } from '@/components/ui/link-button'
 import { getPathProgress, PACE_LABEL } from '@/lib/quiz/pathProgress'
 import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import { StartPathSessionButton } from '@/components/quiz/start-path-session-button'
+import { startButtonLabels } from '@/lib/quiz/startButton'
 import type { QuizPath } from '@/types'
 
 const POOL_LABEL: Record<string, string> = {
@@ -37,6 +38,24 @@ export default async function PathDetailPage({ params }: Props) {
 
   const typedPath = path as QuizPath
   const progress = await getPathProgress(supabase, typedPath, new Date(), await getRequestTimeZone())
+
+  // The unfinished quiz (if any) is what the start button resumes, so the label has to say so.
+  const { data: openSession } = await supabase
+    .from('quiz_sessions')
+    .select('question_ids, current_index')
+    .eq('path_id', typedPath.id)
+    .eq('user_id', user.id)
+    .is('completed_at', null)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const startLabels = startButtonLabels({
+    questionCount: progress.todaysQuestions,
+    uncoveredCount: progress.poolSize - progress.coveredCount,
+    inProgress: openSession
+      ? { total: (openSession.question_ids as string[]).length, currentIndex: openSession.current_index as number }
+      : null,
+  })
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -84,8 +103,8 @@ export default async function PathDetailPage({ params }: Props) {
               <p className="font-medium text-gray-900">{new Date(typedPath.target_end_date).toLocaleDateString()}</p>
             </div>
             <div>
-              <p className="text-gray-400">Current pace</p>
-              <p className="font-medium text-gray-900">{typedPath.questions_per_day} questions/day</p>
+              <p className="text-gray-400">Today&apos;s quiz</p>
+              <p className="font-medium text-gray-900">{progress.todaysQuestions} question{progress.todaysQuestions === 1 ? '' : 's'}</p>
             </div>
           </div>
         </CardContent>
@@ -100,7 +119,7 @@ export default async function PathDetailPage({ params }: Props) {
           </CardContent>
         </Card>
       ) : (
-        <StartPathSessionButton pathId={typedPath.id} questionsPerDay={typedPath.questions_per_day} />
+        <StartPathSessionButton pathId={typedPath.id} label={startLabels.label} loadingLabel={startLabels.loadingLabel} />
       )}
 
       <LinkButton href="/paths" variant="outline" className="w-full">Back to Study Plans</LinkButton>

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { getPathAnswers, getCoveredQuestionIds, getPathProgress } from '@/lib/quiz/pathProgress'
+import { planTodaysQuiz, remainingScheduledDays } from '@/lib/quiz/paths'
 import type { QuizPath } from '@/types'
 
 function fakeSupabase(rows: { question_id: string; answered_at: string }[], error: { message: string } | null = null) {
@@ -118,6 +119,28 @@ describe('getPathProgress pace', () => {
     for (const r of results) {
       expect(r).toMatchObject({ poolSize: 655, coveredCount: 563, paceStatus: 'on-track', expectedCount: 550, expectedPercent: 84 })
     }
+  })
+
+  it('reports the quiz size the builder will use, not the number saved on the plan', async () => {
+    const now = new Date('2026-10-22T18:00:00Z') // 92 questions left, 7 study days left -> 14 a day
+    const todays = async (saved: number) => (await getPathProgress(fakeProgressSupabase(), pathWith(saved), now)).todaysQuestions
+    expect(await todays(19)).toBe(14)
+    expect(await todays(400)).toBe(14)
+    // The reflow is still capped at twice the saved count, exactly as when building.
+    expect(await todays(4)).toBe(8)
+  })
+
+  it('is exactly what planTodaysQuiz gives the quiz builder for the same plan and moment', async () => {
+    const now = new Date('2026-10-22T18:00:00Z')
+    const path = pathWith(19)
+    const shown = (await getPathProgress(fakeProgressSupabase(), path, now)).todaysQuestions
+    const built = planTodaysQuiz({
+      uncoveredCount: 655 - 563,
+      livePoolSize: 655,
+      remainingDays: remainingScheduledDays(now, new Date(path.target_end_date), path.days_per_week),
+      savedQuestionsPerDay: path.questions_per_day,
+    }).questionCount
+    expect(shown).toBe(built)
   })
 
   it('uses the viewer\'s time zone to decide what day it is', async () => {

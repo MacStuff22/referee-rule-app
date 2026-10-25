@@ -115,6 +115,31 @@ export function reflowPace(
   return { questionsPerDay: ceiling, extendEndDate: true }
 }
 
+export interface TodaysQuizPlan {
+  /** How many questions today's quiz will have. */
+  questionCount: number
+  reflow: ReflowResult
+}
+
+/**
+ * How many questions a Study Plan quiz started right now will contain.
+ *
+ * The daily count is recalculated every time a quiz is started (it depends on
+ * what is left and the days remaining), so the number saved on the plan is only
+ * ever the PREVIOUS quiz's size. Everything that shows or builds today's quiz —
+ * the plan page button, the dashboard tile and the quiz builder in
+ * api/quiz/paths/[pathId]/start — must call this one function so they agree.
+ */
+export function planTodaysQuiz(input: {
+  uncoveredCount: number
+  livePoolSize: number
+  remainingDays: number
+  savedQuestionsPerDay: number
+}): TodaysQuizPlan {
+  const reflow = reflowPace(input.uncoveredCount, input.remainingDays, input.savedQuestionsPerDay)
+  return { questionCount: Math.min(reflow.questionsPerDay, input.livePoolSize), reflow }
+}
+
 export function reservedCoverageSlots(
   uncoveredCount: number,
   remainingScheduledDays: number,

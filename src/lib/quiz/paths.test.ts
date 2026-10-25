@@ -10,6 +10,7 @@ import {
   finishDateEnds,
   calendarDay,
   localDateString,
+  planTodaysQuiz,
 } from '@/lib/quiz/paths'
 
 describe('scheduledDaysBetween', () => {
@@ -300,5 +301,38 @@ describe('a plan counts both its start date and its finish date', () => {
     expect(localDateString(new Date('2026-11-01T04:30:00Z'), 'America/New_York')).toBe('2026-11-01')
     expect(localDateString(new Date('2026-11-02T04:59:00Z'), 'America/New_York')).toBe('2026-11-01')
     expect(localDateString(new Date('2026-11-02T05:00:00Z'), 'America/New_York')).toBe('2026-11-02')
+  })
+})
+
+// The plan page label and the quiz builder both call planTodaysQuiz, so the number
+// promised before the click is the number built after it.
+describe('planTodaysQuiz', () => {
+  const plan = (over: Partial<Parameters<typeof planTodaysQuiz>[0]> = {}) =>
+    planTodaysQuiz({ uncoveredCount: 92, livePoolSize: 655, remainingDays: 7, savedQuestionsPerDay: 19, ...over })
+
+  it('is the reflowed daily count, not the number saved on the plan', () => {
+    const r = plan() // 92 left over 7 study days
+    expect(r.questionCount).toBe(14)
+    expect(r.questionCount).toBe(reflowPace(92, 7, 19).questionsPerDay)
+    expect(r.reflow).toEqual({ questionsPerDay: 14, extendEndDate: false })
+  })
+
+  it('is lower than the saved count when you are ahead and higher when you are behind', () => {
+    expect(plan({ uncoveredCount: 40, remainingDays: 10, savedQuestionsPerDay: 17 }).questionCount).toBe(4)
+    expect(plan({ uncoveredCount: 200, remainingDays: 10, savedQuestionsPerDay: 17 }).questionCount).toBe(20)
+  })
+
+  it('caps at twice the saved count and asks for the deadline to move when far behind', () => {
+    const r = plan({ uncoveredCount: 200, remainingDays: 2, savedQuestionsPerDay: 10 })
+    expect(r.questionCount).toBe(20)
+    expect(r.reflow.extendEndDate).toBe(true)
+  })
+
+  it('never exceeds the number of live questions in the plan', () => {
+    expect(plan({ uncoveredCount: 5, livePoolSize: 3, remainingDays: 1, savedQuestionsPerDay: 5 }).questionCount).toBe(3)
+  })
+
+  it('keeps the saved count when nothing is left to cover', () => {
+    expect(plan({ uncoveredCount: 0, savedQuestionsPerDay: 12 }).questionCount).toBe(12)
   })
 })

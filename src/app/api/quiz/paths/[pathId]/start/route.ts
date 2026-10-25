@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { weightForCategory, MASTERY_CONFIG, type CategoryMasteryRow } from '@/lib/quiz/mastery'
-import { remainingScheduledDays, reflowPace, reservedCoverageSlots, computeTargetEndDate, calendarDay } from '@/lib/quiz/paths'
+import { remainingScheduledDays, planTodaysQuiz, reservedCoverageSlots, computeTargetEndDate, calendarDay } from '@/lib/quiz/paths'
 import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
 import { getPathAnswers } from '@/lib/quiz/pathProgress'
@@ -90,7 +90,14 @@ export async function POST(request: Request, { params }: Params) {
   // relaxes pace if the user is ahead, rather than only reacting to misses.
   const timeZone = await getRequestTimeZone()
   const remaining = remainingScheduledDays(now, new Date(path.target_end_date), path.days_per_week, timeZone)
-  const reflow = reflowPace(uncoveredPool.length, remaining, path.questions_per_day)
+  // The same calculation the plan page uses to label its button, so the number
+  // shown before the click is the number of questions built after it.
+  const { questionCount: todaysTarget, reflow } = planTodaysQuiz({
+    uncoveredCount: uncoveredPool.length,
+    livePoolSize: livePoolIds.length,
+    remainingDays: remaining,
+    savedQuestionsPerDay: path.questions_per_day,
+  })
 
   const updates: Record<string, string | number> = {}
   if (reflow.questionsPerDay !== path.questions_per_day) updates.questions_per_day = reflow.questionsPerDay
@@ -123,7 +130,6 @@ export async function POST(request: Request, { params }: Params) {
   })
   const sampleOptions = { isExcluded: tracker.isExcluded, onPick: tracker.excludeAfterPick }
 
-  const todaysTarget = Math.min(reflow.questionsPerDay, livePoolIds.length)
   const reservedCount = reservedCoverageSlots(uncoveredPool.length, remaining, todaysTarget)
   const reservedIds = weightedSampleWithoutReplacement(
     uncoveredPool.map((id) => ({ id, weight: 1 })),
