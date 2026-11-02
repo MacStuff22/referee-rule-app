@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { weightForCategory, MASTERY_CONFIG, type CategoryMasteryRow } from '@/lib/quiz/mastery'
-import { remainingScheduledDays, planTodaysQuiz, reservedCoverageSlots, computeTargetEndDate, calendarDay } from '@/lib/quiz/paths'
+import { remainingScheduledDays, planTodaysQuiz, reservedCoverageSlots } from '@/lib/quiz/paths'
 import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
 import { getPathAnswers } from '@/lib/quiz/pathProgress'
@@ -99,15 +99,10 @@ export async function POST(request: Request, { params }: Params) {
     savedQuestionsPerDay: path.questions_per_day,
   })
 
-  const updates: Record<string, string | number> = {}
-  if (reflow.questionsPerDay !== path.questions_per_day) updates.questions_per_day = reflow.questionsPerDay
-  if (reflow.extendEndDate) {
-    updates.target_end_date = computeTargetEndDate(uncoveredPool.length, reflow.questionsPerDay, calendarDay(now, timeZone), path.days_per_week)
-      .toISOString()
-      .slice(0, 10)
-  }
-  if (Object.keys(updates).length > 0) {
-    await supabase.from('quiz_paths').update(updates).eq('id', pathId)
+  // Only the daily count is ever rewritten. A plan's due date is the one it was
+  // created with and never moves, however far behind it falls.
+  if (reflow.questionsPerDay !== path.questions_per_day) {
+    await supabase.from('quiz_paths').update({ questions_per_day: reflow.questionsPerDay }).eq('id', pathId)
   }
 
   // Matched questions (exact/very-similar situations) get a real minimum-

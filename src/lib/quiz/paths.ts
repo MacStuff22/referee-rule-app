@@ -6,8 +6,9 @@
 // two entry points a plan can be created from — pick a deadline, or pick
 // a pace, and the other side is computed. reflowPace recomputes the pace
 // whenever a plan is revisited, so a missed day doesn't silently fall
-// off track; it's capped so a bad week extends the deadline instead of
-// spiking the daily count into something demoralizing.
+// off track; it's capped so a bad week doesn't spike the daily count into
+// something demoralizing. A plan's due date is the date it was created with
+// and never moves — fall behind and the plan reads "past due" after it.
 // reservedCoverageSlots is what guarantees every question in a path's
 // pool gets covered by the deadline even though most days are otherwise
 // weakness-weighted (see the paths/[pathId]/start route).
@@ -100,7 +101,6 @@ export function computeTargetEndDate(
 
 export interface ReflowResult {
   questionsPerDay: number
-  extendEndDate: boolean
 }
 
 export function reflowPace(
@@ -108,11 +108,10 @@ export function reflowPace(
   remainingScheduledDays: number,
   currentQuestionsPerDay: number
 ): ReflowResult {
-  if (remainingPoolSize <= 0) return { questionsPerDay: currentQuestionsPerDay, extendEndDate: false }
+  if (remainingPoolSize <= 0) return { questionsPerDay: currentQuestionsPerDay }
   const ceiling = currentQuestionsPerDay * PATH_CONFIG.reflowCeilingMultiplier
   const needed = Math.ceil(remainingPoolSize / Math.max(1, remainingScheduledDays))
-  if (needed <= ceiling) return { questionsPerDay: needed, extendEndDate: false }
-  return { questionsPerDay: ceiling, extendEndDate: true }
+  return { questionsPerDay: Math.min(needed, ceiling) }
 }
 
 export interface TodaysQuizPlan {
@@ -150,7 +149,7 @@ export function reservedCoverageSlots(
   return Math.min(todaysTotalSlots, Math.ceil(uncoveredCount / remainingScheduledDays))
 }
 
-export type PaceStatus = 'ahead' | 'on-track' | 'due-today' | 'behind'
+export type PaceStatus = 'ahead' | 'on-track' | 'due-today' | 'behind' | 'past-due'
 
 export interface PaceInput {
   poolSize: number
@@ -181,6 +180,9 @@ export interface PaceResult {
  * The gap between expectedByYesterday and expectedCount is just today's
  * still-open share, so it reads "due-today" rather than "behind" until a full
  * day has actually been missed.
+ *
+ * Once the finish date is over with questions still left the plan is "past-due"
+ * (the finish date itself is still a study day). The due date never moves.
  */
 export function computePace({
   poolSize,
@@ -207,7 +209,9 @@ export function computePace({
   const expectedByYesterday = expectedAfter(elapsed(new Date(todayDate.getTime() - MS_PER_DAY)))
 
   let status: PaceStatus
-  if (coveredCount >= expectedCount) {
+  if (todayDate > targetEndDate && coveredCount < poolSize) {
+    status = 'past-due'
+  } else if (coveredCount >= expectedCount) {
     status = coveredCount > expectedCount * 1.1 ? 'ahead' : 'on-track'
   } else if (coveredCount >= expectedByYesterday) {
     status = 'due-today'

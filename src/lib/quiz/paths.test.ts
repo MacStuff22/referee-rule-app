@@ -79,17 +79,13 @@ describe('computeTargetEndDate', () => {
 
 describe('reflowPace', () => {
   it('recomputes the daily count when still within the ceiling', () => {
-    const result = reflowPace(100, 20, 10)
-    expect(result.questionsPerDay).toBe(5)
-    expect(result.extendEndDate).toBe(false)
+    expect(reflowPace(100, 20, 10)).toEqual({ questionsPerDay: 5 })
   })
-  it('caps the daily count and extends the deadline when far behind', () => {
-    const result = reflowPace(500, 10, 10)
-    expect(result.questionsPerDay).toBe(20)
-    expect(result.extendEndDate).toBe(true)
+  it('caps the daily count at double when far behind — and has no way to move the due date', () => {
+    expect(reflowPace(500, 10, 10)).toEqual({ questionsPerDay: 20 })
   })
   it('leaves pace untouched when nothing remains', () => {
-    expect(reflowPace(0, 10, 8)).toEqual({ questionsPerDay: 8, extendEndDate: false })
+    expect(reflowPace(0, 10, 8)).toEqual({ questionsPerDay: 8 })
   })
 })
 
@@ -182,8 +178,25 @@ describe('computePace', () => {
     expect(pace(0, { today: new Date('2026-10-30T18:00:00Z') }).expectedCount).toBe(640)
   })
 
-  it('reads behind once the finish date is over and questions are left', () => {
-    expect(pace(645, { today: new Date('2026-11-02T12:00:00Z') }).status).toBe('behind')
+  it('reads past due once the finish date is over and questions are left, not behind', () => {
+    expect(pace(645, { today: new Date('2026-11-02T12:00:00Z') }).status).toBe('past-due')
+    expect(pace(0, { today: new Date('2026-12-25T12:00:00Z') }).status).toBe('past-due')
+  })
+
+  it('is not past due on the finish date itself, which is still a study day', () => {
+    expect(pace(645, { today: new Date('2026-10-31T18:00:00Z') }).status).toBe('due-today')
+    expect(pace(600, { today: new Date('2026-10-31T18:00:00Z') }).status).toBe('behind')
+  })
+
+  it('becomes past due at midnight after the finish date in the given time zone', () => {
+    const at = (iso: string) => pace(645, { today: new Date(iso), timeZone: 'America/New_York' }).status
+    expect(at('2026-11-01T03:59:00Z')).toBe('due-today') // 11:59 pm Oct 31 (daylight time ends Nov 1, so still UTC-4)
+    expect(at('2026-11-01T04:00:00Z')).toBe('past-due') // midnight Nov 1
+  })
+
+  it('is never past due once every question is covered', () => {
+    expect(pace(655, { today: new Date('2026-11-20T12:00:00Z') }).status).not.toBe('past-due')
+    expect(pace(0, { poolSize: 0, today: new Date('2026-11-20T12:00:00Z') }).status).not.toBe('past-due')
   })
 
   it('treats a plan whose finish date is its start date as a one-day plan', () => {
@@ -314,7 +327,7 @@ describe('planTodaysQuiz', () => {
     const r = plan() // 92 left over 7 study days
     expect(r.questionCount).toBe(14)
     expect(r.questionCount).toBe(reflowPace(92, 7, 19).questionsPerDay)
-    expect(r.reflow).toEqual({ questionsPerDay: 14, extendEndDate: false })
+    expect(r.reflow).toEqual({ questionsPerDay: 14 })
   })
 
   it('is lower than the saved count when you are ahead and higher when you are behind', () => {
@@ -322,10 +335,12 @@ describe('planTodaysQuiz', () => {
     expect(plan({ uncoveredCount: 200, remainingDays: 10, savedQuestionsPerDay: 17 }).questionCount).toBe(20)
   })
 
-  it('caps at twice the saved count and asks for the deadline to move when far behind', () => {
-    const r = plan({ uncoveredCount: 200, remainingDays: 2, savedQuestionsPerDay: 10 })
-    expect(r.questionCount).toBe(20)
-    expect(r.reflow.extendEndDate).toBe(true)
+  it('caps at twice the saved count when far behind', () => {
+    expect(plan({ uncoveredCount: 200, remainingDays: 2, savedQuestionsPerDay: 10 }).questionCount).toBe(20)
+  })
+
+  it('keeps catching up at the capped rate once the plan is past due (no days left)', () => {
+    expect(plan({ uncoveredCount: 30, remainingDays: 0, savedQuestionsPerDay: 6 }).questionCount).toBe(12)
   })
 
   it('never exceeds the number of live questions in the plan', () => {

@@ -32,6 +32,7 @@ export const PACE_LABEL: Record<PaceStatus, { label: string; variant: 'default' 
   'on-track': { label: 'On track', variant: 'secondary' },
   'due-today': { label: "On track — complete today's questions", variant: 'secondary' },
   behind: { label: 'Behind pace', variant: 'destructive' },
+  'past-due': { label: 'Past due', variant: 'destructive' },
 }
 
 export interface PathAnswerRecord {
