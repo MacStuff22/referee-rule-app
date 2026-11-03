@@ -150,3 +150,24 @@
     display: none;
   }
 }
+
+/* Admin Users: a person invited a moment ago glows briefly in the list, so you can see where they landed.
+   The start colour is pale enough that small grey text on it still clears 4.5:1. Off for reduced motion. */
+@keyframes row-flash {
+  from {
+    background-color: #fffbeb; /* amber-50: small grey text on it measures 4.57:1 */
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.row-flash {
+  animation: row-flash 3s ease-out 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .row-flash {
+    animation: none;
+  }
+}

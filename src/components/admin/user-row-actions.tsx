@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import ConfirmActionDialog from '@/components/admin/confirm-action-dialog'
 import type { UserStatus } from '@/lib/adminUsers'
+import { postJson } from '@/lib/postJson'
 import type { UserRole } from '@/types'
 
 type RowAction = 'promote' | 'demote' | 'deactivate' | 'reactivate'
@@ -77,25 +78,6 @@ const ACTIONS: Record<
   },
 }
 
-const GENERIC_ERROR = 'Something went wrong. Please try again.'
-const NETWORK_ERROR = 'Couldn’t reach the server. Check your connection and try again.'
-
-/** POSTs JSON. Resolves to null on success or to a sentence for the admin: it never throws, so a button can't get stuck busy. */
-async function send(url: string, body: Record<string, string>): Promise<string | null> {
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    if (res.ok) return null
-    const data = await res.json().catch(() => null)
-    return typeof data?.error === 'string' ? data.error : GENERIC_ERROR
-  } catch {
-    return NETWORK_ERROR
-  }
-}
-
 interface UserRowActionsProps {
   userId: string
   name: string
@@ -152,10 +134,10 @@ export default function UserRowActions({ userId, name, email, role, status }: Us
     const { url, body } = request(userId)
     setSubmitting(true)
     setError('')
-    const failure = await send(url, body)
+    const result = await postJson(url, body)
     setSubmitting(false)
-    if (failure) {
-      setError(failure)
+    if (!result.ok) {
+      setError(result.message)
       return
     }
     setDialogOpen(false)
@@ -167,10 +149,10 @@ export default function UserRowActions({ userId, name, email, role, status }: Us
     setSubmitting(true)
     setError('')
     // Leave the name out when there isn't one, so the re-invite can't blank it.
-    const failure = await send('/api/admin/invite', name ? { email, full_name: name } : { email })
+    const result = await postJson('/api/admin/invite', name ? { email, full_name: name } : { email })
     setSubmitting(false)
-    if (failure) {
-      setError(failure)
+    if (!result.ok) {
+      setError(result.message)
       return
     }
     setNotice(`Invitation re-sent to ${email}.`)
@@ -180,7 +162,8 @@ export default function UserRowActions({ userId, name, email, role, status }: Us
   const copy = ACTIONS[action]
 
   return (
-    <div className="flex flex-col items-end">
+    // whitespace-normal: table cells don't wrap, but the notice and error lines below the buttons must.
+    <div className="flex flex-col items-end whitespace-normal">
       <div className="flex items-center gap-2">
         {status === 'pending' && (
           <Button variant="outline" size="sm" onClick={resendInvitation} disabled={busy || justResent}>
@@ -220,12 +203,12 @@ export default function UserRowActions({ userId, name, email, role, status }: Us
       </div>
 
       {/* Always in the page, so screen readers announce what appears in it. */}
-      <p role="status" className={notice ? 'mt-1.5 text-xs text-gray-500' : 'sr-only'}>
+      <p role="status" className={notice ? 'mt-1.5 max-w-56 text-right text-xs text-muted-foreground' : 'sr-only'}>
         {notice}
       </p>
 
       {!dialogOpen && error && (
-        <Alert variant="destructive" className="mt-1.5 px-2.5 py-1.5">
+        <Alert variant="destructive" className="mt-1.5 max-w-56 px-2.5 py-1.5">
           <AlertDescription className="text-xs">{error}</AlertDescription>
         </Alert>
       )}
