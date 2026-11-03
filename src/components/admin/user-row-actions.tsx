@@ -166,7 +166,8 @@ export default function UserRowActions({ userId, name, email, role, status }: Us
   async function resendInvitation() {
     setSubmitting(true)
     setError('')
-    const failure = await send('/api/admin/invite', { email, full_name: name })
+    // Leave the name out when there isn't one, so the re-invite can't blank it.
+    const failure = await send('/api/admin/invite', name ? { email, full_name: name } : { email })
     setSubmitting(false)
     if (failure) {
       setError(failure)

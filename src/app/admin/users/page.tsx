@@ -22,7 +22,8 @@ export default async function UsersPage() {
   const [profilesResult, authResult, timeZone] = await Promise.all([
     adminSupabase.from('profiles').select('*').order('created_at'),
     // Supabase hands back 50 people per page unless told otherwise, and each
-    // person's pending / deactivated status comes from this list.
+    // person's pending / deactivated status comes from this list. Ask for up to
+    // 1,000 (far more than this app will have); paging past that isn't handled.
     adminSupabase.auth.admin.listUsers({ perPage: 1000 }),
     getRequestTimeZone(),
   ])
