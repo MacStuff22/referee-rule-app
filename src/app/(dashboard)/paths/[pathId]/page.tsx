@@ -9,14 +9,8 @@ import { getPathProgress, PACE_LABEL } from '@/lib/quiz/pathProgress'
 import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import { StartPathSessionButton } from '@/components/quiz/start-path-session-button'
 import { startButtonLabels } from '@/lib/quiz/startButton'
+import { POOL_LABEL } from '@/lib/quiz/pathLabels'
 import type { QuizPath } from '@/types'
-
-const POOL_LABEL: Record<string, string> = {
-  situation_book: 'Situation Book',
-  categories: 'Selected Rules',
-  weak_areas: 'Weaknesses',
-  missed_questions: 'Missed questions',
-}
 
 interface Props {
   params: Promise<{ pathId: string }>
