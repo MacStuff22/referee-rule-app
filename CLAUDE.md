@@ -69,6 +69,17 @@ For any non-trivial feature or fix, follow Explore → Plan → Code → Commit:
 5. Run `/code-review` before committing. Use `/security-review` instead for anything touching permissions, RLS policies, or auth. For large or newly-built features, use `/code-review ultra` for a deeper multi-agent review.
 6. Commit locally — Morgan syncs to GitHub via GitHub Desktop (see Deploy workflow above).
 
+## Redesign project (in progress)
+
+Morgan is overhauling the site's whole look and feel in five steps that he starts one at a time (breakdown, design brief, desktop build, phone pass, iPhone app). The living plan, with the numbered chunk list (0.1 to 10.2), decisions and progress, is `Redesign Plan.md` in the folder above this repo. Read it first in any redesign session, then follow these rules:
+
+- Anything on the site may be redesigned **except the text of questions, answers, options and rationales**. Their words never change; how they are displayed can.
+- **Any structural or process change needs Morgan's approval before it is done**, written in plain English as: Current state, Future state, Pros and cons, and Mockups when they apply. Examples: new navigation, reworking the Matches flow, adding features, changing how we work. Wording tweaks to buttons, menus and headings don't need this.
+- Morgan is the only approver and wants to see every screen. Work one chunk at a time and stop for his approval after each.
+- Once Step 3 starts, redesign work happens on a separate `redesign` branch with a Vercel preview link, tested against the practice database (Tier 2), and goes live only when Morgan says so. Until then, no redesign code goes on `main`.
+- The admin question builder keeps every field (checklist in the plan). Never rely on colour alone for correct/incorrect or status. No emoji as icons.
+- Security and data handling stay first: don't touch sign-in, permissions or RLS unless a chunk truly needs it, and run `/security-review` if you do. The "SQL before commit" rule above still applies.
+
 ## Architecture
 
 Next.js App Router + Supabase (Postgres, auth, RLS) + Tailwind v4 + shadcn/ui (`base-nova` style, see `components.json`). Deployed on Vercel.
