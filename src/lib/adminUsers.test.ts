@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
+  analyticsAnchorId,
+  analyticsHref,
   buildUserRows,
   countUsers,
   filterUsers,
@@ -215,5 +217,12 @@ describe('search, filters and summary', () => {
     expect(summarizeUsers(rows.filter((r) => r.id === 'a'))).toBe('1 person: 1 admin.')
     expect(summarizeUsers(rows.filter((r) => ['a', 'b', 'd'].includes(r.id)))).toBe('3 people: 2 admins, 1 pending invite.')
     expect(summarizeUsers([])).toBe('No one has been invited yet.')
+  })
+})
+
+describe('Analytics link', () => {
+  it('points at the card whose id the Analytics page uses', () => {
+    expect(analyticsAnchorId('abc-123')).toBe('user-abc-123')
+    expect(analyticsHref('abc-123')).toBe('/admin/analytics#user-abc-123')
   })
 })

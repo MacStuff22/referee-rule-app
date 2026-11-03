@@ -119,7 +119,7 @@ export default function UsersClient({ rows, currentUserId }: UsersClientProps) {
           })}
           {filtering && (
             <Button size="sm" variant="ghost" className="pointer-coarse:h-9" onClick={clearFilters}>
-              Clear
+              Clear Filters
             </Button>
           )}
         </div>
@@ -134,12 +134,12 @@ export default function UsersClient({ rows, currentUserId }: UsersClientProps) {
         {visible.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-muted-foreground">
             {rows.length === 0 ? (
-              <p>No one has been invited yet. Choose Invite someone to add the first person.</p>
+              <p>No one has been invited yet. Choose Invite Someone to add the first person.</p>
             ) : (
               <div className="space-y-3">
                 <p>No one matches {query.trim() ? `“${query.trim()}”` : 'this filter'}.</p>
                 <Button size="sm" variant="outline" onClick={clearFilters}>
-                  Clear filters
+                  Clear Filters
                 </Button>
               </div>
             )}

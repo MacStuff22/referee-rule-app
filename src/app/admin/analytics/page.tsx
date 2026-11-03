@@ -1,6 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { createAdminClient } from '@/lib/supabase/admin'
+import { analyticsAnchorId } from '@/lib/adminUsers'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { classifyMastery, type MasteryStatus } from '@/lib/quiz/mastery'
@@ -70,7 +71,7 @@ export default async function AdminAnalyticsPage() {
 
       <div className="grid gap-4">
         {userSummaries.map(({ profile, categoriesTouched, counts, developing, pathSummaries }) => (
-          <Card key={profile.id}>
+          <Card key={profile.id} id={analyticsAnchorId(profile.id)}>
             <CardHeader className="pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="text-base">{profile.full_name || profile.email}</CardTitle>

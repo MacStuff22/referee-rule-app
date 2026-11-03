@@ -118,13 +118,13 @@ describe('UsersClient', () => {
     const html = render('q=zzz')
     expect(html).not.toContain('<table')
     expect(html).toContain('No one matches “zzz”.')
-    expect(html).toContain('Clear filters')
+    expect(html).toContain('Clear Filters')
   })
 
   it('invites the first person when the list is empty', () => {
     const html = render('', [])
     expect(html).toContain('No one has been invited yet.')
-    expect(html).not.toContain('Clear filters')
+    expect(html).not.toContain('Clear Filters')
   })
 
   it('marks a just-invited pending person so the row can glow', () => {

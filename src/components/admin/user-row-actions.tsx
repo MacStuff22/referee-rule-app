@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useId, useState, useTransition } from 'react'
+import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { EllipsisIcon } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -13,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import ConfirmActionDialog from '@/components/admin/confirm-action-dialog'
-import type { UserStatus } from '@/lib/adminUsers'
+import { analyticsHref, type UserStatus } from '@/lib/adminUsers'
 import { postJson } from '@/lib/postJson'
 import type { UserRole } from '@/types'
 
@@ -185,6 +186,13 @@ export default function UserRowActions({ userId, name, email, role, status }: Us
             <EllipsisIcon aria-hidden="true" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-auto min-w-44">
+            {/* Someone who hasn't joined yet has no progress to see. */}
+            {status !== 'pending' && (
+              <>
+                <DropdownMenuItem render={<Link href={analyticsHref(userId)} />}>View Progress</DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem disabled={busy} onClick={() => openDialog(roleAction)}>
               {ACTIONS[roleAction].menuLabel}
             </DropdownMenuItem>

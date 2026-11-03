@@ -87,7 +87,7 @@ export default function InviteDialog() {
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogTrigger render={<Button />}>Invite someone</DialogTrigger>
+        <DialogTrigger render={<Button />}>Invite Someone</DialogTrigger>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Invite someone</DialogTitle>

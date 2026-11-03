@@ -187,3 +187,15 @@ export function summarizeUsers(rows: UserRow[]): string {
   if (counts.deactivated) parts.push(`${counts.deactivated} deactivated`)
   return `${rows.length} ${rows.length === 1 ? 'person' : 'people'}: ${parts.join(', ')}.`
 }
+
+// ---- Links ----------------------------------------------------------------
+
+/** The id on a person's card on the Analytics tab. Both pages use this, so the link and its target can't drift apart. */
+export function analyticsAnchorId(userId: string): string {
+  return `user-${userId}`
+}
+
+/** Where "View Progress" goes: the Analytics tab, scrolled to that person's card. */
+export function analyticsHref(userId: string): string {
+  return `/admin/analytics#${analyticsAnchorId(userId)}`
+}
