@@ -37,7 +37,39 @@ export const PACE_LABEL: Record<PaceStatus, { label: string; variant: 'default' 
 
 export interface PathAnswerRecord {
   questionId: string
+  sessionId: string
+  isCorrect: boolean
   answeredAt: string
+}
+
+// Supabase returns at most 1000 rows per request, so anything that reads a
+// whole answer history has to page through it. A plan that repeats questions
+// can pass 1000 answers, and a silently cut-off list would read as "not done".
+const ANSWER_PAGE_SIZE = 1000
+
+type AnswerRow = Record<string, unknown>
+
+async function fetchAllRows(
+  page: (from: number, to: number) => PromiseLike<{ data: AnswerRow[] | null; error: { message: string } | null }>,
+  failure: string
+): Promise<AnswerRow[]> {
+  const rows: AnswerRow[] = []
+  for (let from = 0; ; from += ANSWER_PAGE_SIZE) {
+    const { data, error } = await page(from, from + ANSWER_PAGE_SIZE - 1)
+    if (error) throw new Error(`${failure}: ${error.message}`)
+    rows.push(...(data ?? []))
+    if (!data || data.length < ANSWER_PAGE_SIZE) break
+  }
+  return rows
+}
+
+function toAnswerRecord(row: AnswerRow): PathAnswerRecord {
+  return {
+    questionId: row.question_id as string,
+    sessionId: row.session_id as string,
+    isCorrect: row.is_correct as boolean,
+    answeredAt: row.answered_at as string,
+  }
 }
 
 /**
@@ -54,18 +86,56 @@ export async function getPathAnswers(
   pathId: string,
   userId: string
 ): Promise<PathAnswerRecord[]> {
-  const { data, error } = await supabase
-    .from('quiz_answers')
-    .select('question_id, answered_at, quiz_sessions!inner(path_id, user_id)')
-    .eq('quiz_sessions.path_id', pathId)
-    .eq('quiz_sessions.user_id', userId)
-    .order('answered_at', { ascending: true })
+  const rows = await fetchAllRows(
+    (from, to) =>
+      supabase
+        .from('quiz_answers')
+        .select('id, question_id, session_id, is_correct, answered_at, quiz_sessions!inner(path_id, user_id)')
+        .eq('quiz_sessions.path_id', pathId)
+        .eq('quiz_sessions.user_id', userId)
+        .order('answered_at', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    'Failed to resolve path answers'
+  )
+  return rows.map(toAnswerRecord)
+}
 
-  if (error) throw new Error(`Failed to resolve path answers: ${error.message}`)
-  return (data ?? []).map((row) => ({
-    questionId: row.question_id as string,
-    answeredAt: row.answered_at as string,
-  }))
+// Same ceiling as fetchLivePoolQuestions: a long id list in the URL gets
+// rejected, so look the questions up a chunk at a time.
+const LATEST_ANSWER_CHUNK_SIZE = 200
+
+/**
+ * Each of these questions' most recent answer by this user, from any quiz
+ * (the plan itself or later practice). Questions never answered are absent.
+ */
+export async function getLatestAnswers(
+  supabase: SupabaseClient,
+  userId: string,
+  questionIds: string[]
+): Promise<Map<string, PathAnswerRecord>> {
+  const latest = new Map<string, PathAnswerRecord>()
+  for (let i = 0; i < questionIds.length; i += LATEST_ANSWER_CHUNK_SIZE) {
+    const chunk = questionIds.slice(i, i + LATEST_ANSWER_CHUNK_SIZE)
+    const rows = await fetchAllRows(
+      (from, to) =>
+        supabase
+          .from('quiz_answers')
+          .select('id, question_id, session_id, is_correct, answered_at, quiz_sessions!inner(user_id)')
+          .eq('quiz_sessions.user_id', userId)
+          .in('question_id', chunk)
+          .order('answered_at', { ascending: true })
+          .order('id', { ascending: true })
+          .range(from, to),
+      'Failed to load latest answers'
+    )
+    // Oldest first, so the last row seen for a question is its latest answer.
+    for (const row of rows) {
+      const answer = toAnswerRecord(row)
+      latest.set(answer.questionId, answer)
+    }
+  }
+  return latest
 }
 
 export async function getCoveredQuestionIds(

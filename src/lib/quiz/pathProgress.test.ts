@@ -1,19 +1,30 @@
 import { describe, it, expect } from 'vitest'
-import { getPathAnswers, getCoveredQuestionIds, getPathProgress } from '@/lib/quiz/pathProgress'
+import { getPathAnswers, getCoveredQuestionIds, getLatestAnswers, getPathProgress } from '@/lib/quiz/pathProgress'
 import { planTodaysQuiz, remainingScheduledDays } from '@/lib/quiz/paths'
 import type { QuizPath } from '@/types'
 
-function fakeSupabase(rows: { question_id: string; answered_at: string }[], error: { message: string } | null = null) {
-  return {
+type Row = { question_id: string; answered_at: string; session_id?: string; is_correct?: boolean }
+
+// Mimics the chained query: filters are ignored, rows come back a range at a time.
+function fakeSupabase(rows: Row[], error: { message: string } | null = null) {
+  const requested: [number, number][] = []
+  const client = {
+    requested,
     from(table: string) {
       if (table !== 'quiz_answers') throw new Error(`unexpected table ${table}`)
       const builder = {
         eq: () => builder,
-        order: () => Promise.resolve({ data: rows, error }),
+        in: () => builder,
+        order: () => builder,
+        range: (from: number, to: number) => {
+          requested.push([from, to])
+          return Promise.resolve({ data: error ? null : rows.slice(from, to + 1), error })
+        },
       }
       return { select: () => builder }
     },
-  } as unknown as import('@supabase/supabase-js').SupabaseClient
+  }
+  return client as typeof client & import('@supabase/supabase-js').SupabaseClient
 }
 
 describe('getPathAnswers', () => {
@@ -22,23 +33,64 @@ describe('getPathAnswers', () => {
     expect(await getPathAnswers(supabase, 'p1', 'u1')).toEqual([])
   })
 
-  it('maps question_id/answered_at for every answer row returned, including from a still-in-progress session', async () => {
+  it('maps every answer row returned, including from a still-in-progress session', async () => {
     // The query never filters on quiz_sessions.completed_at — an answer counts
     // the moment it's submitted, regardless of whether its session was ever
     // marked complete (or was marked complete early via an exit).
     const supabase = fakeSupabase([
-      { question_id: 'q1', answered_at: '2026-01-01T00:00:00Z' },
-      { question_id: 'q2', answered_at: '2026-01-02T00:00:00Z' },
+      { question_id: 'q1', answered_at: '2026-01-01T00:00:00Z', session_id: 's1', is_correct: true },
+      { question_id: 'q2', answered_at: '2026-01-02T00:00:00Z', session_id: 's2', is_correct: false },
     ])
     expect(await getPathAnswers(supabase, 'p1', 'u1')).toEqual([
-      { questionId: 'q1', answeredAt: '2026-01-01T00:00:00Z' },
-      { questionId: 'q2', answeredAt: '2026-01-02T00:00:00Z' },
+      { questionId: 'q1', sessionId: 's1', isCorrect: true, answeredAt: '2026-01-01T00:00:00Z' },
+      { questionId: 'q2', sessionId: 's2', isCorrect: false, answeredAt: '2026-01-02T00:00:00Z' },
     ])
   })
 
   it('throws if the query errors', async () => {
     const supabase = fakeSupabase([], { message: 'boom' })
     await expect(getPathAnswers(supabase, 'p1', 'u1')).rejects.toThrow('boom')
+  })
+
+  // Supabase caps a single request at 1000 rows. Without paging, a plan with
+  // more answers than that would silently lose the rest and look unfinished.
+  it('pages past the 1000-row request limit so no answer is lost', async () => {
+    const rows = Array.from({ length: 2300 }, (_, i) => ({ question_id: `q${i}`, answered_at: '2026-01-01T00:00:00Z' }))
+    const supabase = fakeSupabase(rows)
+    const answers = await getPathAnswers(supabase, 'p1', 'u1')
+    expect(answers).toHaveLength(2300)
+    expect(supabase.requested).toEqual([[0, 999], [1000, 1999], [2000, 2999]])
+  })
+
+  it('stops after one request when a page comes back short', async () => {
+    const supabase = fakeSupabase([{ question_id: 'q1', answered_at: '2026-01-01T00:00:00Z' }])
+    await getPathAnswers(supabase, 'p1', 'u1')
+    expect(supabase.requested).toEqual([[0, 999]])
+  })
+})
+
+describe('getLatestAnswers', () => {
+  it('keeps the most recent answer for each question, whichever quiz it was in', async () => {
+    // Rows arrive oldest first: q1 was missed in the plan, then answered correctly in a later practice quiz.
+    const supabase = fakeSupabase([
+      { question_id: 'q1', answered_at: '2026-01-01T00:00:00Z', session_id: 'plan', is_correct: false },
+      { question_id: 'q2', answered_at: '2026-01-02T00:00:00Z', session_id: 'plan', is_correct: false },
+      { question_id: 'q1', answered_at: '2026-02-01T00:00:00Z', session_id: 'practice', is_correct: true },
+    ])
+    const latest = await getLatestAnswers(supabase, 'u1', ['q1', 'q2', 'q3'])
+    expect(latest.get('q1')).toMatchObject({ sessionId: 'practice', isCorrect: true })
+    expect(latest.get('q2')).toMatchObject({ sessionId: 'plan', isCorrect: false })
+    expect(latest.has('q3')).toBe(false)
+  })
+
+  it('looks the questions up in chunks, not one giant id list', async () => {
+    const supabase = fakeSupabase([])
+    await getLatestAnswers(supabase, 'u1', Array.from({ length: 450 }, (_, i) => `q${i}`))
+    expect(supabase.requested).toHaveLength(3) // 200 + 200 + 50
+  })
+
+  it('throws if a query errors', async () => {
+    await expect(getLatestAnswers(fakeSupabase([], { message: 'boom' }), 'u1', ['q1'])).rejects.toThrow('boom')
   })
 })
 
@@ -87,13 +139,14 @@ describe('getPathProgress pace', () => {
           return { select: () => builder }
         }
         if (table === 'quiz_answers') {
+          const rows = answeredIds.map((id, i) => ({
+            question_id: id,
+            answered_at: `2026-10-${String((i % 20) + 1).padStart(2, '0')}T12:00:00Z`,
+          }))
           const builder = {
             eq: () => builder,
-            order: () =>
-              Promise.resolve({
-                data: answeredIds.map((id, i) => ({ question_id: id, answered_at: `2026-10-${String((i % 20) + 1).padStart(2, '0')}T12:00:00Z` })),
-                error: null,
-              }),
+            order: () => builder,
+            range: (from: number, to: number) => Promise.resolve({ data: rows.slice(from, to + 1), error: null }),
           }
           return { select: () => builder }
         }

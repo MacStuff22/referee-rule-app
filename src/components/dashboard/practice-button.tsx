@@ -10,11 +10,15 @@ export function PracticeButton({
   categories,
   sessionLength = 'quick',
   variant = 'default',
+  size = 'sm',
+  fullWidth = false,
   children = 'Practice',
 }: {
   categories: string[]
   sessionLength?: SessionLength
   variant?: 'default' | 'outline'
+  size?: 'sm' | 'lg'
+  fullWidth?: boolean
   children?: React.ReactNode
 }) {
   const router = useRouter()
@@ -40,8 +44,8 @@ export function PracticeButton({
   }
 
   return (
-    <span className="inline-flex items-center gap-2">
-      <Button size="sm" variant={variant} onClick={start} disabled={loading}>
+    <span className={fullWidth ? 'flex flex-col gap-2' : 'inline-flex items-center gap-2'}>
+      <Button size={size} variant={variant} onClick={start} disabled={loading} className={fullWidth ? 'w-full' : undefined}>
         {loading ? 'Starting…' : children}
       </Button>
       {failed && <span className="text-xs text-red-600">Couldn&apos;t start. Try again.</span>}

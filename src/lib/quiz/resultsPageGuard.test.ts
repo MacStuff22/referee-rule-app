@@ -22,4 +22,18 @@ describe('quiz results page', () => {
     expect(pageSource).toContain('getReviewClipUrls')
     expect(pageSource).not.toContain('createAdminClient')
   })
+
+  // Noticing that a Study Plan just finished is an extra on top of showing the
+  // answers, so a failure there has to be logged and swallowed, not thrown.
+  it('checks for a finished study plan inside a try/catch', () => {
+    const call = pageSource.indexOf('completePathIfFinished(')
+    expect(call).toBeGreaterThan(-1)
+    const open = pageSource.lastIndexOf('try {', call)
+    const close = pageSource.indexOf('} catch', call)
+    expect(open).toBeGreaterThan(-1)
+    expect(close).toBeGreaterThan(call)
+    // redirect() works by throwing, so it must stay outside that try.
+    const redirectToFinish = pageSource.indexOf('/finish`')
+    expect(redirectToFinish).toBeGreaterThan(close)
+  })
 })

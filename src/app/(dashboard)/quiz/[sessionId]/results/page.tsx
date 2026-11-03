@@ -10,6 +10,7 @@ import { parseScoreboardConfig } from '@/types/scoreboard'
 import { formatGT } from '@/lib/scoreboard'
 import { orderByQuizPosition } from '@/lib/quiz/review'
 import { getReviewClipUrls } from '@/lib/quiz/reviewClips'
+import { completePathIfFinished } from '@/lib/quiz/pathFinish'
 
 /** Collapsed by default with preload="none", so a review page full of clips downloads nothing until one is opened. */
 function ReviewClip({ url }: { url: string | undefined }) {
@@ -48,6 +49,27 @@ export default async function ResultsPage({ params }: Props) {
     .single()
 
   if (!session) redirect('/quiz')
+
+  // The answer that finishes a Study Plan sends the user to its celebration
+  // instead of the ordinary review (the plan page links back to that review).
+  // Best-effort like the clips below: noticing a finished plan must never be
+  // able to break the page that shows the user their answers. The redirect
+  // sits outside the try because it works by throwing.
+  let finishedPathId: string | null = null
+  if (session.path_id) {
+    try {
+      const { data: path } = await supabase
+        .from('quiz_paths')
+        .select('id, status, pool_question_ids')
+        .eq('id', session.path_id)
+        .eq('user_id', user.id)
+        .maybeSingle()
+      if (path && (await completePathIfFinished(supabase, path, user.id)) === 'just-completed') finishedPathId = path.id
+    } catch (err) {
+      console.error('Failed to check whether the study plan is finished:', err instanceof Error ? err.message : err)
+    }
+  }
+  if (finishedPathId) redirect(`/paths/${finishedPathId}/finish`)
 
   const { data: answerRows, error: answersError } = await supabase
     .from('quiz_answers')

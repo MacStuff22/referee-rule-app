@@ -22,8 +22,9 @@ export function StartPathSessionButton({ pathId, label, loadingLabel }: { pathId
         return
       }
 
+      // Nothing left to cover: that was the last question, so this is the finish line.
       if (data.completed) {
-        router.refresh()
+        router.push(`/paths/${pathId}/finish`)
         return
       }
 

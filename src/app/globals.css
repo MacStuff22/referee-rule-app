@@ -128,3 +128,25 @@
     @apply font-sans;
   }
 }
+
+/* Study Plan finish line: a single short burst of confetti, hidden entirely for anyone who prefers less motion. */
+@keyframes confetti-fall {
+  0% {
+    transform: translate3d(0, -10vh, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--confetti-drift, 0px), 100vh, 0) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+.confetti-piece {
+  animation: confetti-fall var(--confetti-duration, 3s) ease-in var(--confetti-delay, 0s) 1 both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .confetti-piece {
+    display: none;
+  }
+}

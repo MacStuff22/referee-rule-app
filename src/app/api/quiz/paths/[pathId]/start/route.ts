@@ -5,6 +5,7 @@ import { remainingScheduledDays, planTodaysQuiz, reservedCoverageSlots } from '@
 import { getRequestTimeZone } from '@/lib/requestTimeZone'
 import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
 import { getPathAnswers } from '@/lib/quiz/pathProgress'
+import { markPathCompleted } from '@/lib/quiz/pathFinish'
 import { weightedSampleWithoutReplacement } from '@/lib/quiz/sampling'
 import {
   getAllSuppressionMatches,
@@ -81,8 +82,14 @@ export async function POST(request: Request, { params }: Params) {
 
   const now = new Date()
 
+  // Nothing left to cover: the user answered the last question without ever
+  // reaching the results page (which is where finishing is normally noticed).
   if (uncoveredPool.length === 0) {
-    await supabase.from('quiz_paths').update({ status: 'completed' }).eq('id', pathId)
+    try {
+      await markPathCompleted(supabase, pathId, user.id)
+    } catch (err) {
+      return NextResponse.json({ error: err instanceof Error ? err.message : 'Could not finish this plan.' }, { status: 500 })
+    }
     return NextResponse.json({ completed: true })
   }
 

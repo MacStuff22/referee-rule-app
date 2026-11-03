@@ -115,7 +115,7 @@ export default async function PathDetailPage({ params }: Props) {
           <CardContent className="py-8 text-center space-y-3">
             <p className="text-lg font-medium text-gray-900">Plan complete! 🎉</p>
             <p className="text-sm text-gray-500">Every question in this plan&apos;s pool has been covered.</p>
-            <LinkButton href="/paths">Back to Study Plans</LinkButton>
+            <LinkButton href={`/paths/${typedPath.id}/report`}>View your report</LinkButton>
           </CardContent>
         </Card>
       ) : (

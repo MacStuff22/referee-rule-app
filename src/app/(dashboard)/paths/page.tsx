@@ -74,7 +74,13 @@ export default async function PathsPage() {
                     {progress.coveredCount} of {progress.poolSize} questions covered · target {new Date(path.target_end_date).toLocaleDateString()}
                   </p>
                 </div>
-                <LinkButton href={`/paths/${path.id}`} variant="outline" className="w-full">View Plan</LinkButton>
+                <LinkButton
+                  href={path.status === 'completed' ? `/paths/${path.id}/report` : `/paths/${path.id}`}
+                  variant="outline"
+                  className="w-full"
+                >
+                  {path.status === 'completed' ? 'View Report' : 'View Plan'}
+                </LinkButton>
               </CardContent>
             </Card>
           ))}
