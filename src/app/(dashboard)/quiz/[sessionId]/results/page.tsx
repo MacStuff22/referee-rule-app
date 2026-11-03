@@ -50,11 +50,10 @@ export default async function ResultsPage({ params }: Props) {
 
   if (!session) redirect('/quiz')
 
-  // The answer that finishes a Study Plan sends the user to its celebration
-  // instead of the ordinary review (the plan page links back to that review).
-  // Best-effort like the clips below: noticing a finished plan must never be
-  // able to break the page that shows the user their answers. The redirect
-  // sits outside the try because it works by throwing.
+  // The quiz that finishes a Study Plan shows its answers like any other; it
+  // just also offers the way on to the celebration. Noticing the finish also
+  // marks the plan completed. Best-effort like the clips below: this must never
+  // be able to break the page that shows the user their answers.
   let finishedPathId: string | null = null
   if (session.path_id) {
     try {
@@ -64,12 +63,21 @@ export default async function ResultsPage({ params }: Props) {
         .eq('id', session.path_id)
         .eq('user_id', user.id)
         .maybeSingle()
-      if (path && (await completePathIfFinished(supabase, path, user.id)) === 'just-completed') finishedPathId = path.id
+      if (path && (await completePathIfFinished(supabase, path, user.id)) !== 'not-finished') {
+        // Only the quiz holding the plan's final answer gets the prompt, not every earlier quiz.
+        const { data: lastAnswer } = await supabase
+          .from('quiz_answers')
+          .select('session_id, quiz_sessions!inner(path_id)')
+          .eq('quiz_sessions.path_id', path.id)
+          .order('answered_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        if (lastAnswer?.session_id === sessionId) finishedPathId = path.id
+      }
     } catch (err) {
       console.error('Failed to check whether the study plan is finished:', err instanceof Error ? err.message : err)
     }
   }
-  if (finishedPathId) redirect(`/paths/${finishedPathId}/finish`)
 
   const { data: answerRows, error: answersError } = await supabase
     .from('quiz_answers')
@@ -114,6 +122,15 @@ export default async function ResultsPage({ params }: Props) {
         <p className="text-5xl font-bold mt-4">{pct}%</p>
         <p className="text-gray-500">{correct} of {total} correct</p>
       </div>
+
+      {finishedPathId && (
+        <Card className="border-amber-300 bg-amber-50">
+          <CardContent className="flex flex-col items-center gap-3 py-5 text-center">
+            <p className="font-medium text-gray-900">🎉 That was the last question in your study plan!</p>
+            <LinkButton href={`/paths/${finishedPathId}/finish`}>Continue</LinkButton>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="space-y-3">
         <h2 className="font-semibold text-gray-800">Review</h2>
@@ -261,7 +278,11 @@ export default async function ResultsPage({ params }: Props) {
       </div>
 
       <div className="flex gap-3">
-        <LinkButton href="/quiz" className="flex-1">Take Another Quiz</LinkButton>
+        {finishedPathId ? (
+          <LinkButton href={`/paths/${finishedPathId}/finish`} className="flex-1">Continue to your plan finish</LinkButton>
+        ) : (
+          <LinkButton href="/quiz" className="flex-1">Take Another Quiz</LinkButton>
+        )}
         <LinkButton href="/dashboard" variant="outline" className="flex-1">Back to Dashboard</LinkButton>
       </div>
     </div>

@@ -62,10 +62,11 @@ export default async function PathFinishPage({ params }: Props) {
 
       <div className="space-y-2">
         <p className="text-sm font-medium uppercase tracking-wide text-amber-600">Study plan complete</p>
-        <h1 className="text-3xl font-bold text-gray-900">You finished {typedPath.name}!</h1>
+        <h1 className="text-3xl font-bold text-gray-900">You finished your study plan!</h1>
+        <p className="text-gray-500">{typedPath.name}</p>
         {covered !== null && (
           <p className="text-lg text-gray-700">
-            All {covered} question{covered === 1 ? '' : 's'} covered. That&apos;s real work — well done.
+            {`All ${covered} question${covered === 1 ? '' : 's'} covered. That's real work — well done.`}
           </p>
         )}
         {timingLine && <p className="text-sm text-gray-500">{timingLine}</p>}

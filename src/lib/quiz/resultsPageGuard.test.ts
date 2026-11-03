@@ -28,12 +28,12 @@ describe('quiz results page', () => {
   it('checks for a finished study plan inside a try/catch', () => {
     const call = pageSource.indexOf('completePathIfFinished(')
     expect(call).toBeGreaterThan(-1)
-    const open = pageSource.lastIndexOf('try {', call)
-    const close = pageSource.indexOf('} catch', call)
-    expect(open).toBeGreaterThan(-1)
-    expect(close).toBeGreaterThan(call)
-    // redirect() works by throwing, so it must stay outside that try.
-    const redirectToFinish = pageSource.indexOf('/finish`')
-    expect(redirectToFinish).toBeGreaterThan(close)
+    expect(pageSource.lastIndexOf('try {', call)).toBeGreaterThan(-1)
+    expect(pageSource.indexOf('} catch', call)).toBeGreaterThan(call)
+  })
+
+  // The quiz that finishes a plan must show its answers first; the celebration is a link, not a redirect.
+  it('never redirects away from the results of a finished plan', () => {
+    expect(pageSource).not.toMatch(/redirect\(`\/paths/)
   })
 })
