@@ -1,92 +1,247 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useId, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
-import { Button } from '@/components/ui/button'
+import { EllipsisIcon } from 'lucide-react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import ConfirmActionDialog from '@/components/admin/confirm-action-dialog'
+import type { UserStatus } from '@/lib/adminUsers'
 import type { UserRole } from '@/types'
 
-interface UserRowActionsProps {
-  userId: string
-  role: UserRole
-  banned: boolean
-  isSelf: boolean
+type RowAction = 'promote' | 'demote' | 'deactivate' | 'reactivate'
+
+// All the wording for the four actions lives here, not scattered through the JSX.
+const ACTIONS: Record<
+  RowAction,
+  {
+    menuLabel: string
+    title: (who: string) => string
+    description: (who: string) => string
+    confirmLabel: string
+    confirmingLabel: string
+    done: (who: string) => string
+    tone: 'default' | 'destructive'
+    request: (userId: string) => { url: string; body: Record<string, string> }
+  }
+> = {
+  promote: {
+    menuLabel: 'Make Admin',
+    title: (who) => `Make ${who} an admin?`,
+    description: () =>
+      'Admins can edit questions, manage matches, invite and deactivate people, and see everyone’s analytics. You can remove admin access later.',
+    confirmLabel: 'Make Admin',
+    confirmingLabel: 'Making admin…',
+    done: (who) => `${who} is now an admin.`,
+    tone: 'default',
+    request: (userId) => ({ url: `/api/admin/users/${userId}/role`, body: { role: 'admin' } }),
+  },
+  demote: {
+    menuLabel: 'Remove Admin',
+    title: (who) => `Remove admin access for ${who}?`,
+    description: (who) =>
+      `${who} becomes a regular user and loses access to the admin tabs. Their quiz history and study plans are kept. You can make them an admin again later.`,
+    confirmLabel: 'Remove Admin',
+    confirmingLabel: 'Removing…',
+    done: (who) => `${who} is now a regular user.`,
+    tone: 'default',
+    request: (userId) => ({ url: `/api/admin/users/${userId}/role`, body: { role: 'user' } }),
+  },
+  deactivate: {
+    menuLabel: 'Deactivate',
+    title: (who) => `Deactivate ${who}?`,
+    description: (who) =>
+      `${who} won’t be able to sign in. Their quiz history is kept, and you can reactivate them at any time.`,
+    confirmLabel: 'Deactivate',
+    confirmingLabel: 'Deactivating…',
+    done: (who) => `${who} is deactivated.`,
+    tone: 'destructive',
+    request: (userId) => ({ url: `/api/admin/users/${userId}/status`, body: { action: 'deactivate' } }),
+  },
+  reactivate: {
+    menuLabel: 'Reactivate',
+    title: (who) => `Reactivate ${who}?`,
+    description: (who) => `${who} will be able to sign in again.`,
+    confirmLabel: 'Reactivate',
+    confirmingLabel: 'Reactivating…',
+    done: (who) => `${who} is reactivated.`,
+    tone: 'default',
+    request: (userId) => ({ url: `/api/admin/users/${userId}/status`, body: { action: 'reactivate' } }),
+  },
 }
 
-export default function UserRowActions({ userId, role, banned, isSelf }: UserRowActionsProps) {
-  const router = useRouter()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+const GENERIC_ERROR = 'Something went wrong. Please try again.'
+const NETWORK_ERROR = 'Couldn’t reach the server. Check your connection and try again.'
 
-  async function post(url: string, body: Record<string, string>, confirmMessage: string) {
-    if (!confirm(confirmMessage)) return
-
-    setLoading(true)
-    setError('')
-
+/** POSTs JSON. Resolves to null on success or to a sentence for the admin: it never throws, so a button can't get stuck busy. */
+async function send(url: string, body: Record<string, string>): Promise<string | null> {
+  try {
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+    if (res.ok) return null
+    const data = await res.json().catch(() => null)
+    return typeof data?.error === 'string' ? data.error : GENERIC_ERROR
+  } catch {
+    return NETWORK_ERROR
+  }
+}
 
-    if (res.ok) {
-      router.refresh()
-    } else {
-      const data = await res.json()
-      setError(data.error)
+interface UserRowActionsProps {
+  userId: string
+  name: string
+  email: string
+  role: UserRole
+  status: UserStatus
+}
+
+// The signed-in admin's own row never renders this: you can't change your own role or deactivate yourself.
+export default function UserRowActions({ userId, name, email, role, status }: UserRowActionsProps) {
+  const router = useRouter()
+  const triggerId = useId()
+  const who = name || email
+
+  const [isRefreshing, startRefresh] = useTransition()
+  const [action, setAction] = useState<RowAction>('deactivate')
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [justResent, setJustResent] = useState(false)
+
+  // Busy until the request is done AND the refreshed list has arrived; before, the old state showed with live buttons.
+  const busy = submitting || isRefreshing
+  const roleAction: RowAction = role === 'admin' ? 'demote' : 'promote'
+
+  // The confirmation line fades after a few seconds.
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(''), 6000)
+    return () => clearTimeout(timer)
+  }, [notice])
+
+  // Supabase limits how many invite emails go out per hour, so the resend button rests for a minute.
+  useEffect(() => {
+    if (!justResent) return
+    const timer = setTimeout(() => setJustResent(false), 60_000)
+    return () => clearTimeout(timer)
+  }, [justResent])
+
+  function openDialog(next: RowAction) {
+    setError('')
+    setAction(next)
+    setDialogOpen(true)
+  }
+
+  function closeDialog() {
+    setDialogOpen(false)
+    setError('')
+  }
+
+  async function confirmAction() {
+    const { request, done } = ACTIONS[action]
+    const { url, body } = request(userId)
+    setSubmitting(true)
+    setError('')
+    const failure = await send(url, body)
+    setSubmitting(false)
+    if (failure) {
+      setError(failure)
+      return
     }
-
-    setLoading(false)
+    setDialogOpen(false)
+    setNotice(done(who))
+    startRefresh(() => router.refresh())
   }
 
-  function toggleRole() {
-    const nextRole = role === 'admin' ? 'user' : 'admin'
-    post(
-      `/api/admin/users/${userId}/role`,
-      { role: nextRole },
-      nextRole === 'admin' ? 'Promote this user to admin?' : 'Demote this admin to a regular user?'
-    )
+  async function resendInvitation() {
+    setSubmitting(true)
+    setError('')
+    const failure = await send('/api/admin/invite', { email, full_name: name })
+    setSubmitting(false)
+    if (failure) {
+      setError(failure)
+      return
+    }
+    setNotice(`Invitation re-sent to ${email}.`)
+    setJustResent(true)
   }
 
-  function toggleStatus() {
-    const nextAction = banned ? 'reactivate' : 'deactivate'
-    post(
-      `/api/admin/users/${userId}/status`,
-      { action: nextAction },
-      nextAction === 'deactivate'
-        ? 'Deactivate this user? They will no longer be able to sign in.'
-        : 'Reactivate this user?'
-    )
-  }
+  const copy = ACTIONS[action]
 
   return (
-    <div className="flex flex-col items-end gap-1.5">
-      <div className="flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={toggleRole}
-          disabled={loading || isSelf}
-          title={isSelf ? "You can't change your own role" : undefined}
-        >
-          {role === 'admin' ? 'Demote to User' : 'Promote to Admin'}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={toggleStatus}
-          disabled={loading || isSelf}
-          title={isSelf ? "You can't deactivate yourself" : undefined}
-        >
-          {banned ? 'Reactivate' : 'Deactivate'}
-        </Button>
+    <div className="flex flex-col items-end">
+      <div className="flex items-center gap-2">
+        {status === 'pending' && (
+          <Button variant="outline" size="sm" onClick={resendInvitation} disabled={busy || justResent}>
+            {submitting && !dialogOpen ? 'Sending…' : justResent ? 'Invitation Sent' : 'Resend Invitation'}
+          </Button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            id={triggerId}
+            render={
+              <Button
+                variant="outline"
+                size="icon"
+                aria-label={`Actions for ${who}`}
+                className="pointer-coarse:size-11"
+              />
+            }
+          >
+            <EllipsisIcon aria-hidden="true" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-auto min-w-44">
+            <DropdownMenuItem disabled={busy} onClick={() => openDialog(roleAction)}>
+              {ACTIONS[roleAction].menuLabel}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            {status === 'deactivated' ? (
+              <DropdownMenuItem disabled={busy} onClick={() => openDialog('reactivate')}>
+                {ACTIONS.reactivate.menuLabel}
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem variant="destructive" disabled={busy} onClick={() => openDialog('deactivate')}>
+                {ACTIONS.deactivate.menuLabel}
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      {error && (
-        <Alert variant="destructive" className="py-1.5 px-2.5">
+
+      {/* Always in the page, so screen readers announce what appears in it. */}
+      <p role="status" className={notice ? 'mt-1.5 text-xs text-gray-500' : 'sr-only'}>
+        {notice}
+      </p>
+
+      {!dialogOpen && error && (
+        <Alert variant="destructive" className="mt-1.5 px-2.5 py-1.5">
           <AlertDescription className="text-xs">{error}</AlertDescription>
         </Alert>
       )}
+
+      <ConfirmActionDialog
+        open={dialogOpen}
+        onOpenChange={(next) => (next ? setDialogOpen(true) : closeDialog())}
+        title={copy.title(who)}
+        description={copy.description(who)}
+        confirmLabel={copy.confirmLabel}
+        confirmingLabel={copy.confirmingLabel}
+        tone={copy.tone}
+        confirming={submitting}
+        error={dialogOpen ? error : ''}
+        returnFocusId={triggerId}
+        onConfirm={confirmAction}
+      />
     </div>
   )
 }

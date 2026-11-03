@@ -20,25 +20,32 @@ export default function InviteForm() {
     setLoading(true)
     setStatus('')
 
-    const res = await fetch('/api/admin/invite', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, full_name: name }),
-    })
+    // A dropped connection or a non-JSON reply (an error page) used to throw
+    // before setLoading(false), leaving the button stuck on "Sending…".
+    try {
+      const res = await fetch('/api/admin/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, full_name: name }),
+      })
 
-    const data = await res.json()
-    if (res.ok) {
-      setIsError(false)
-      setStatus(`Invitation sent to ${email}`)
-      setName('')
-      setEmail('')
-      router.refresh()
-    } else {
+      const data = await res.json().catch(() => null)
+      if (res.ok) {
+        setIsError(false)
+        setStatus(`Invitation sent to ${email}`)
+        setName('')
+        setEmail('')
+        router.refresh()
+      } else {
+        setIsError(true)
+        setStatus(`Error: ${typeof data?.error === 'string' ? data.error : 'Something went wrong. Please try again.'}`)
+      }
+    } catch {
       setIsError(true)
-      setStatus(`Error: ${data.error}`)
+      setStatus('Error: Couldn’t reach the server. Check your connection and try again.')
+    } finally {
+      setLoading(false)
     }
-
-    setLoading(false)
   }
 
   return (
