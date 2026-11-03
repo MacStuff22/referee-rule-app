@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
 import { computeQuestionsPerDay, computeTargetEndDate, localDateString } from '@/lib/quiz/paths'
 import { getRequestTimeZone } from '@/lib/requestTimeZone'
-import { resolvePool } from '@/lib/quiz/pool'
+import { PoolRequestError, resolvePathPool } from '@/lib/quiz/pathMissed'
 import type { PathPoolFilter } from '@/types'
 
 interface CreatePathBody {
@@ -24,12 +24,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'name, poolFilter, daysPerWeek and pace are required' }, { status: 400 })
   }
 
-  const { questionIds, resolvedFilter } = await resolvePool(supabase, user.id, poolFilter)
+  let pool
+  try {
+    pool = await resolvePathPool(supabase, user.id, poolFilter)
+  } catch (err) {
+    if (err instanceof PoolRequestError) return NextResponse.json({ error: err.message }, { status: 400 })
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Could not build this plan.' }, { status: 500 })
+  }
+  const { questionIds, resolvedFilter } = pool
 
   if (questionIds.length === 0) {
-    const message = poolFilter.type === 'weak_areas'
-      ? 'No weak categories identified yet — take a few quizzes first, or start a broader plan.'
-      : 'No approved questions match this plan yet.'
+    const message =
+      poolFilter.type === 'weak_areas'
+        ? 'No weak categories identified yet — take a few quizzes first, or start a broader plan.'
+        : poolFilter.type === 'missed_questions'
+          ? 'Nothing left to retake from that plan.'
+          : 'No approved questions match this plan yet.'
     return NextResponse.json({ error: message }, { status: 400 })
   }
 

@@ -39,7 +39,8 @@ export async function fetchLivePoolQuestions(
 export async function resolvePool(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-  poolFilter: PathPoolFilter
+  // A missed-questions pool is built from another plan's answers; see resolvePathPool in pathMissed.ts.
+  poolFilter: Exclude<PathPoolFilter, { type: 'missed_questions' }>
 ): Promise<{ questionIds: string[]; resolvedFilter: PathPoolFilter }> {
   if (poolFilter.type === 'situation_book') {
     const { data } = await supabase.from('questions').select('id').eq('is_approved', true).neq('situation_id', '')

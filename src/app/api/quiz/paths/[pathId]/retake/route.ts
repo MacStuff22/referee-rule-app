@@ -1,8 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { NextResponse } from 'next/server'
-import { fetchLivePoolQuestions } from '@/lib/quiz/pool'
-import { getLatestAnswers, getPathAnswers } from '@/lib/quiz/pathProgress'
-import { defaultRetakeSize, retakeSizeOptions, stillMissedQuestions } from '@/lib/quiz/pathReport'
+import { loadStillMissed } from '@/lib/quiz/pathMissed'
+import { defaultRetakeSize, retakeSizeOptions } from '@/lib/quiz/pathReport'
 import { weightedSampleWithoutReplacement } from '@/lib/quiz/sampling'
 import {
   getAllSuppressionMatches,
@@ -39,21 +38,13 @@ export async function POST(request: Request, { params }: Params) {
   const body = await request.json().catch(() => null)
 
   let liveQuestions
-  let planAnswers
-  let latestAnswers
+  let missed
   try {
-    liveQuestions = await fetchLivePoolQuestions(supabase, path.pool_question_ids)
-    planAnswers = await getPathAnswers(supabase, pathId, user.id)
-    latestAnswers = await getLatestAnswers(supabase, user.id, liveQuestions.map((q) => q.id))
+    ;({ liveQuestions, missed } = await loadStillMissed(supabase, path, user.id))
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Could not load this plan.' }, { status: 500 })
   }
 
-  const missed = stillMissedQuestions({
-    poolQuestionIds: liveQuestions.map((q) => q.id),
-    latestAnswers,
-    planAnswers,
-  })
   if (missed.length === 0) return NextResponse.json({ error: 'Nothing left to retake' }, { status: 400 })
 
   // Never trust the size from the client: whole numbers only, within what the stepper offers.

@@ -29,9 +29,13 @@ export const REPORT_CONFIG = {
   /** Fewer missed questions than this and practising weak sections leads, not retaking. */
   fewMisses: 5,
   retake: { step: 5, max: 35, preferred: 10 },
-  /** A retake is more useful after a few days; sooner is still allowed. */
-  retakeWaitDays: 3,
 } as const
+
+/** Missing at least this many questions turns the retake into a study plan; fewer is a quick quiz. */
+export const RETAKE_PLAN_MIN_MISSED = 20
+
+/** What a retake plan starts with on the Create a Study Plan page. */
+export const RETAKE_PLAN_DEFAULTS = { questionsPerDay: 10, daysPerWeek: 3 } as const
 
 export interface ReportAnswer {
   questionId: string
@@ -215,6 +219,8 @@ export function stillMissedQuestions(input: {
 export interface NextSteps {
   /** 'none' is a clean sweep: nothing to retake. */
   retake: 'primary' | 'secondary' | 'none'
+  /** A study plan for a lot of missed questions, a one-click quick quiz for a handful. */
+  retakeFormat: 'plan' | 'quiz' | 'none'
   /** Which section quizzes to offer, or a mixed quiz when no section needs attention. */
   practice: 'weakest' | 'mixed'
   practiceCategories: string[]
@@ -225,6 +231,7 @@ export function nextSteps(missedCount: number, focusSections: SectionResult[]): 
   const practiceSections = focusSections.map((s) => s.section)
   return {
     retake: missedCount === 0 ? 'none' : missedCount >= REPORT_CONFIG.fewMisses ? 'primary' : 'secondary',
+    retakeFormat: missedCount === 0 ? 'none' : missedCount >= RETAKE_PLAN_MIN_MISSED ? 'plan' : 'quiz',
     practice: focusSections.length > 0 ? 'weakest' : 'mixed',
     practiceCategories: practiceSections.flatMap((s) => [...SECTION_CATEGORIES[s as (typeof HANDBOOK_SECTIONS)[number]]]),
     practiceSections,
@@ -249,11 +256,4 @@ export function retakeSizeOptions(missedCount: number): number[] {
 export function defaultRetakeSize(options: number[]): number {
   if (options.includes(REPORT_CONFIG.retake.preferred)) return REPORT_CONFIG.retake.preferred
   return options[options.length - 1] ?? 0
-}
-
-/** The day (YYYY-MM-DD) from which a retake is best, or null once that day has arrived. */
-export function retakeBestAfter(finishedOn: string, today: string): string | null {
-  const [y, m, d] = finishedOn.split('-').map(Number)
-  const best = new Date(Date.UTC(y, m - 1, d + REPORT_CONFIG.retakeWaitDays)).toISOString().slice(0, 10)
-  return today < best ? best : null
 }

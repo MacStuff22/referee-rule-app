@@ -80,6 +80,8 @@ export type PathPoolFilter =
   | { type: 'situation_book' }
   | { type: 'categories'; categories: string[] }
   | { type: 'weak_areas'; categories: string[] }
+  /** The questions still being missed from a finished plan; the pool is worked out on the server from that plan. */
+  | { type: 'missed_questions'; sourcePathId: string }
 
 export type PathStatus = 'active' | 'completed' | 'abandoned'
 

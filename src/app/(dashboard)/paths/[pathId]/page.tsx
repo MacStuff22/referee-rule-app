@@ -15,6 +15,7 @@ const POOL_LABEL: Record<string, string> = {
   situation_book: 'Situation Book',
   categories: 'Selected Rules',
   weak_areas: 'Weaknesses',
+  missed_questions: 'Missed questions',
 }
 
 interface Props {

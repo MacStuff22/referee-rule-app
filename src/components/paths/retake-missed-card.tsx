@@ -10,7 +10,6 @@ export function RetakeMissedCard({
   missedCount,
   sizeOptions,
   defaultSize,
-  bestAfter,
   primary,
 }: {
   pathId: string
@@ -18,8 +17,6 @@ export function RetakeMissedCard({
   /** The quiz sizes on offer, smallest first. A single entry means there is nothing to choose. */
   sizeOptions: number[]
   defaultSize: number
-  /** A short date, e.g. "Nov 2", when waiting a few days is still worth suggesting. Null otherwise. */
-  bestAfter: string | null
   primary: boolean
 }) {
   const router = useRouter()
@@ -47,10 +44,11 @@ export function RetakeMissedCard({
   }
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4 space-y-3">
-      <div>
+    <div className={`flex flex-col gap-3 rounded-xl bg-white p-4 ${primary ? 'border-2 border-slate-900' : 'border border-gray-200'}`}>
+      <span className="text-2xl" aria-hidden="true">🔁</span>
+      <div className="flex-1">
         <p className="font-medium text-gray-900">Retake what you missed</p>
-        <p className="text-sm text-gray-500">
+        <p className="mt-1 text-sm text-gray-500">
           {missedCount} question{missedCount === 1 ? '' : 's'} where your last answer was wrong. Seeing them again is the
           fastest way to lock them in.
         </p>
@@ -79,12 +77,6 @@ export function RetakeMissedCard({
             +
           </Button>
         </div>
-      )}
-
-      {bestAfter && (
-        <p className="text-xs text-gray-500">
-          Waiting a few days helps it stick. Best after {bestAfter} — or start now.
-        </p>
       )}
 
       <Button onClick={start} disabled={loading} size="lg" variant={primary ? 'default' : 'outline'} className="w-full">

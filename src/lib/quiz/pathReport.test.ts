@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest'
+import { computeTargetEndDate } from '@/lib/quiz/paths'
 import {
   buildPathReport,
   defaultRetakeSize,
   describeTiming,
   nextSteps,
   pathTiming,
-  retakeBestAfter,
+  RETAKE_PLAN_DEFAULTS,
+  RETAKE_PLAN_MIN_MISSED,
   retakeSizeOptions,
   stillMissedQuestions,
   type ReportAnswer,
@@ -236,6 +238,14 @@ describe('nextSteps', () => {
     expect(steps.practiceCategories).toEqual(['Rink', 'Goal Posts and Nets', 'Benches', 'Signal and Timing Devices'])
   })
 
+  it('retakes with a quick quiz below 20 missed and a study plan from 20 up', () => {
+    expect(nextSteps(0, []).retakeFormat).toBe('none')
+    expect(nextSteps(1, []).retakeFormat).toBe('quiz')
+    expect(nextSteps(RETAKE_PLAN_MIN_MISSED - 1, []).retakeFormat).toBe('quiz')
+    expect(nextSteps(RETAKE_PLAN_MIN_MISSED, []).retakeFormat).toBe('plan')
+    expect(nextSteps(111, []).retakeFormat).toBe('plan')
+  })
+
   it('offers a mixed quiz when no section needs attention', () => {
     expect(nextSteps(10, [])).toMatchObject({ practice: 'mixed', practiceCategories: [] })
   })
@@ -268,18 +278,20 @@ describe('retake size', () => {
   })
 })
 
-describe('retakeBestAfter', () => {
-  it('suggests three days after finishing while that day is still ahead', () => {
-    expect(retakeBestAfter('2026-10-30', '2026-10-30')).toBe('2026-11-02')
-    expect(retakeBestAfter('2026-10-30', '2026-11-01')).toBe('2026-11-02')
+describe('retake plan defaults', () => {
+  // Morgan's own plan: 111 questions missed, 10 a session, 3 days a week.
+  it('111 missed questions at 10 a session, 3 days a week is 12 sessions over 4 weeks', () => {
+    const start = new Date('2026-11-02')
+    const { questionsPerDay, daysPerWeek } = RETAKE_PLAN_DEFAULTS
+    expect(Math.ceil(111 / questionsPerDay)).toBe(12)
+    // The start date is day one, so 28 calendar days ends 27 days later.
+    expect(computeTargetEndDate(111, questionsPerDay, start, daysPerWeek).toISOString().slice(0, 10)).toBe('2026-11-29')
   })
 
-  it('drops the suggestion once that day has arrived', () => {
-    expect(retakeBestAfter('2026-10-30', '2026-11-02')).toBeNull()
-    expect(retakeBestAfter('2026-10-30', '2026-12-01')).toBeNull()
-  })
-
-  it('rolls across a month and year end', () => {
-    expect(retakeBestAfter('2026-12-30', '2026-12-30')).toBe('2027-01-02')
+  it('the smallest retake plan, 20 questions, is 2 sessions over 5 days', () => {
+    // 3 study days a week stretches each session over 7/3 calendar days.
+    const start = new Date('2026-11-02')
+    const { questionsPerDay, daysPerWeek } = RETAKE_PLAN_DEFAULTS
+    expect(computeTargetEndDate(RETAKE_PLAN_MIN_MISSED, questionsPerDay, start, daysPerWeek).toISOString().slice(0, 10)).toBe('2026-11-06')
   })
 })
